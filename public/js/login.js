@@ -38,8 +38,8 @@ export function renderLogin(root, onSuccess, notice = '') {
     h('section', { class: 'login__brand' },
       h('div', { class: 'brand' }, h('span', { class: 'brand__name' }, 'acesio'), h('span', { class: 'brand__sub' }, 'Physiotherapy Rehab & Sport Recovery Rehab')),
       h('div', null,
-        h('h1', null, 'Catat layanan hari ini, komisi terhitung otomatis.'),
-        h('p', null, 'Layanan Pengimputan Data Integrasi Pelanggan Acesioterapi.id')),
+        h('h1', null, 'Layanan Pengimputan Data Integrasi Pelanggan Acesioterapi.id'),
+        h('p', null, 'Satu Input Untuk Semua')),
       tiles),
     h('section', { class: 'login__panel' }, form)));
   username.focus();
