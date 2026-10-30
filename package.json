@@ -1,0 +1,13 @@
+{
+  "name": "acesio-dashboard",
+  "version": "1.0.0",
+  "description": "Dashboard pencatatan layanan & komisi Acesio (user + admin), siap integrasi WA bot",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --no-warnings server/index.js",
+    "dev": "node --no-warnings --watch server/index.js",
+    "seed:demo": "node --no-warnings scripts/seed-demo.js"
+  }
+}
