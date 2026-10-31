@@ -97,7 +97,8 @@ async function handleApi(req, res, url) {
   if (['POST', 'PATCH', 'PUT'].includes(req.method)) {
     // Wajib JSON: form lintas situs tidak bisa mengirim tipe ini tanpa preflight (perlindungan CSRF).
     if (!String(req.headers['content-type'] || '').startsWith('application/json')) throw new HttpError(415, 'Content-Type harus application/json');
-    body = await readBody(req);
+    // File impor data customer (CSV/Excel base64) lebih besar dari request biasa.
+    body = await readBody(req, url.pathname === '/api/staff/customers/import' ? 30 * 1024 * 1024 : undefined);
   }
   const query = Object.fromEntries(url.searchParams);
   const result = route.handler({ req, res, user, body, query, params });

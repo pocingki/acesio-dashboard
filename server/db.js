@@ -12,6 +12,25 @@ fs.mkdirSync(uploadDir, { recursive: true });
 export const db = new DatabaseSync(path.join(dataDir, 'acesio.db'));
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
 
+// Data customer berasal dari upload/input admin. No RM unik dan dipakai user untuk mencocokkan customer.
+// origin: 'awal' = data awal (upload/tambahan admin), 'baru' = customer baru yang dilaporkan user lalu dimasukkan admin.
+const customersDdl = (target) => `CREATE TABLE ${target} (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rm_no TEXT COLLATE NOCASE,
+  reimburse TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL COLLATE NOCASE,
+  gender TEXT NOT NULL DEFAULT '' CHECK (gender IN ('','L','P')),
+  birth_date TEXT NOT NULL DEFAULT '',
+  phone TEXT NOT NULL DEFAULT '',
+  occupation TEXT NOT NULL DEFAULT '',
+  domicile TEXT NOT NULL DEFAULT '',
+  month TEXT NOT NULL DEFAULT '',
+  reference TEXT NOT NULL DEFAULT '',
+  origin TEXT NOT NULL DEFAULT 'awal' CHECK (origin IN ('awal','baru')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT ''
+)`;
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,14 +48,7 @@ CREATE TABLE IF NOT EXISTS services (
   name TEXT NOT NULL,
   photo TEXT
 );
-CREATE TABLE IF NOT EXISTS customers (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL COLLATE NOCASE,
-  phone TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  UNIQUE (name, phone)
-);
-CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
+${customersDdl('IF NOT EXISTS customers')};
 CREATE TABLE IF NOT EXISTS records (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id),
@@ -70,6 +82,9 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 `;
 const INDEXES = `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_rm ON customers(rm_no) WHERE rm_no IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
+CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);
 CREATE INDEX IF NOT EXISTS idx_records_user_day ON records(user_id, day);
 CREATE INDEX IF NOT EXISTS idx_records_day ON records(day);
 CREATE INDEX IF NOT EXISTS idx_records_customer ON records(customer_id);
@@ -113,8 +128,28 @@ if (hasUsers && version < 2) {
   db.exec('PRAGMA foreign_keys = ON');
 } else {
   db.exec(SCHEMA);
-  db.exec('PRAGMA user_version = 2');
 }
+
+// Migrasi ke versi 3: customer punya No RM, reimburse, jenis kelamin, tgl lahir, pekerjaan, domisili, bulan, referensi.
+// Customer lama (dibuat user di versi sebelumnya) tetap ada, ditandai 'baru', dan No RM-nya diisi admin lewat tombol Ubah.
+const hasRm = db.prepare("SELECT 1 FROM pragma_table_info('customers') WHERE name = 'rm_no'").get();
+if (!hasRm) {
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    db.exec(customersDdl('customers_new'));
+    db.exec(`INSERT INTO customers_new (id, name, phone, origin, created_at)
+             SELECT id, name, phone, 'baru', created_at FROM customers`);
+    db.exec('DROP TABLE customers');
+    db.exec('ALTER TABLE customers_new RENAME TO customers');
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  db.exec('PRAGMA foreign_keys = ON');
+}
+db.exec('PRAGMA user_version = 3');
 db.exec(INDEXES);
 
 // 29 kotak layanan tetap; supervisor mengubah nama dan fotonya.

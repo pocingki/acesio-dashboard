@@ -1,6 +1,6 @@
 import { api } from './api.js';
 import {
-  h, icon, toast, fmtDate, fmtPhone, fmtNum, debounce, normalizePhone, serviceCard, setSelected,
+  h, icon, toast, fmtDate, fmtPhone, fmtNum, debounce, serviceCard, setSelected,
   confirmDialog, jakartaToday, emptyState,
 } from './ui.js';
 import { createShell } from './shell.js';
@@ -17,6 +17,9 @@ export function renderUserApp(root, user, { onLogout }) {
 }
 
 // ======================= TAB LAYANAN =======================
+// Alur: 1) isi No RM dan klik yang sesuai, 2) pilih layanan, 3) Input.
+// User tidak mengisi catatan medis; semua data customer dikelola admin dan supervisor.
+// User tidak bisa membuat customer: kalau No RM tidak ada, laporkan ke admin.
 async function servicesView(main, user) {
   let services;
   try {
@@ -28,21 +31,29 @@ async function servicesView(main, user) {
 
   const selected = new Map(); // id -> service
   const cards = new Map(); // id -> button
-  let customer = null; // customer yang sudah divalidasi
-  let isNew = false; // customer baru (belum ada di data)
+  let customer = null; // customer yang dipilih dari data admin
   let results = [];
+  let searchedQ = ''; // kata kunci yang hasilnya sudah dimuat
   let active = -1;
   let reqId = 0;
 
   // ----- grid layanan -----
-  const todayLine = h('p', { class: 'muted' }, 'Ketuk satu atau lebih kotak, lalu isi customer.');
+  const todayLine = h('p', { class: 'muted' }, 'Mulai dengan mengisi No RM customer di kotak atas.');
   const filter = h('input', { class: 'input', type: 'search', id: 'svc-filter', placeholder: 'Cari layanan', 'aria-label': 'Cari layanan' });
-  const grid = h('div', { class: 'svc-grid', role: 'group', 'aria-label': 'Daftar layanan' });
+  const grid = h('div', { class: 'svc-grid is-locked', role: 'group', 'aria-label': 'Daftar layanan' });
   for (const s of services) {
     const card = serviceCard(s, {
       badge: user.name,
       pressable: true,
-      onClick: () => toggle(s),
+      onClick: () => {
+        if (!customer && !selected.has(s.id)) {
+          toast('Isi No RM dulu, lalu klik No RM yang sesuai.', 'err');
+          panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          rmInput.focus({ preventScroll: true });
+          return;
+        }
+        toggle(s);
+      },
     });
     cards.set(s.id, card);
     grid.append(card);
@@ -53,58 +64,52 @@ async function servicesView(main, user) {
   });
 
   // ----- panel input (di atas daftar layanan) -----
-  const sumTitle = h('strong');
   const chips = h('ul', { class: 'chips' });
+  const stepHint = h('p', { class: 'hint' });
   const clear = h('button', { class: 'link', type: 'button', onclick: () => { for (const s of [...selected.values()]) toggle(s); } }, 'Kosongkan pilihan');
 
-  const nameInput = h('input', {
-    class: 'input', id: 'cust-name', type: 'text', autocomplete: 'off', spellcheck: 'false',
-    placeholder: 'Ketik nama atau nomor WA', role: 'combobox', 'aria-expanded': 'false', 'aria-controls': 'cust-list', 'aria-autocomplete': 'list',
+  const rmInput = h('input', {
+    class: 'input', id: 'cust-rm', type: 'text', autocomplete: 'off', spellcheck: 'false',
+    placeholder: 'Ketik No RM customer', role: 'combobox', 'aria-expanded': 'false', 'aria-controls': 'cust-list', 'aria-autocomplete': 'list',
   });
   const list = h('ul', { class: 'cust__list', id: 'cust-list', role: 'listbox', hidden: true });
-  const nameField = h('div', { class: 'field' },
-    h('label', { for: 'cust-name' }, 'Customer'),
-    h('div', { class: 'cust__box' }, nameInput, list));
-
+  const notFound = h('p', { class: 'warn', role: 'status', hidden: true },
+    'No RM tidak ditemukan. Laporkan ke admin untuk memasukkan data customer baru, lalu coba lagi.');
+  const rmField = h('div', { class: 'field' },
+    h('label', { for: 'cust-rm' }, '1 · No RM customer'),
+    h('div', { class: 'cust__box' }, rmInput, list),
+    notFound);
   const picked = h('div', { class: 'chip-ok', hidden: true });
-  const phoneInput = h('input', { class: 'input', id: 'cust-phone', type: 'tel', inputmode: 'tel', autocomplete: 'off', placeholder: 'Contoh 0812 3456 7890' });
-  const phoneHint = h('p', { class: 'hint' }, 'Customer ini belum ada di data. Isi nomor WA-nya.');
-  const phoneRow = h('div', { class: 'field', style: null, hidden: true }, h('label', { for: 'cust-phone' }, 'Nomor WA customer baru'), phoneInput, phoneHint);
-  phoneRow.style.marginTop = '10px';
-  const note = h('textarea', { class: 'textarea', id: 'rekam-medis', maxlength: '2000', rows: '3', placeholder: 'Keluhan, tindakan, atau catatan untuk customer ini' });
-  const noteField = h('div', { class: 'field' },
-    h('label', { for: 'rekam-medis' }, 'Rekam Medis'), note,
-    h('p', { class: 'hint' }, 'Satu catatan berlaku untuk semua layanan yang dipilih.'));
+
   const submit = h('button', { class: 'btn btn--primary', type: 'button', disabled: true }, 'Input');
 
-  const panel = h('section', { class: 'panel', 'aria-label': 'Input customer', hidden: true },
+  const panel = h('section', { class: 'panel', 'aria-label': 'Input customer' },
     h('div', { class: 'panel__inner' },
-      h('div', { class: 'panel__top' }, sumTitle, clear),
-      chips,
       h('div', { class: 'panel__grid' },
-        h('div', null, nameField, picked, phoneRow),
-        noteField,
-        submit)));
+        h('div', null, rmField, picked),
+        submit),
+      h('div', { class: 'panel__top' }, h('strong', { id: 'sum-title' }, '2 · Layanan dipilih'), clear),
+      chips, stepHint));
+  const sumTitle = panel.querySelector('#sum-title');
   const jump = h('button', { class: 'btn btn--primary jump', type: 'button', onclick: () => panel.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, '');
   new IntersectionObserver(([e]) => jump.classList.toggle('is-on', !e.isIntersecting && selected.size > 0), {
     rootMargin: `-${Math.round(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h')) || 64)}px 0px 0px 0px`,
   }).observe(panel);
 
-  function readyToSubmit() {
-    if (selected.size === 0) return false;
-    if (customer) return true;
-    return isNew && nameInput.value.trim().length >= 2 && normalizePhone(phoneInput.value) !== null;
-  }
   function refresh() {
     const n = selected.size;
-    panel.hidden = n === 0;
     jump.textContent = `${n} layanan dipilih · isi data`;
     if (n === 0) jump.classList.remove('is-on');
-    sumTitle.textContent = `${n} layanan dipilih`;
+    sumTitle.textContent = n ? `2 · ${n} layanan dipilih` : '2 · Layanan dipilih';
+    clear.hidden = n === 0;
     chips.replaceChildren(...[...selected.values()].map((s) => h('li', { class: 'chip' },
       h('span', null, s.name),
       h('button', { type: 'button', 'aria-label': `Batalkan ${s.name}`, onclick: () => toggle(s) }, '×'))));
-    submit.disabled = !readyToSubmit();
+    grid.classList.toggle('is-locked', !customer);
+    stepHint.textContent = !customer ? 'Pilih customer dulu (langkah 1), lalu ketuk kotak layanan di bawah.'
+      : n === 0 ? 'Ketuk satu atau lebih kotak layanan di bawah.' : '';
+    stepHint.hidden = stepHint.textContent === '';
+    submit.disabled = !(customer && n > 0);
     submit.textContent = n > 1 ? `Input ${n} layanan` : 'Input';
   }
   function toggle(s) {
@@ -115,111 +120,79 @@ async function servicesView(main, user) {
     refresh();
   }
 
-  function looksLikePhone(q) {
-    return /^[+\d\s-]+$/.test(q) && q.replace(/\D/g, '').length >= 6;
-  }
   function renderList() {
-    const q = nameInput.value.trim();
-    const opts = results.map((c) => ({ kind: 'existing', c }));
-    if (q.length >= 2 && !looksLikePhone(q)) opts.push({ kind: 'new', name: q });
-    if (active >= opts.length) active = opts.length - 1;
-    if (active < 0 && opts.length) active = 0;
-    list.replaceChildren(...opts.map((o, i) => {
+    if (active >= results.length) active = results.length - 1;
+    if (active < 0 && results.length) active = 0;
+    list.replaceChildren(...results.map((c, i) => {
       const btn = h('button', {
-        class: `cust__opt${o.kind === 'new' ? ' cust__opt--new' : ''}`, type: 'button', role: 'option',
-        'aria-selected': String(i === active),
+        class: 'cust__opt', type: 'button', role: 'option', 'aria-selected': String(i === active),
         onmousedown: (e) => e.preventDefault(), // jaga fokus di input
-        onclick: () => pick(o),
-      },
-      o.kind === 'existing'
-        ? [h('b', null, o.c.name), h('small', null, fmtPhone(o.c.phone))]
-        : [h('b', null, `+ Customer baru: “${o.name}”`)]);
+        onclick: () => pick(c),
+      }, h('b', null, c.rm_no), h('small', null, c.name));
       return h('li', { role: 'presentation' }, btn);
     }));
-    list.hidden = opts.length === 0;
-    nameInput.setAttribute('aria-expanded', String(!list.hidden));
-    list._opts = opts;
+    list.hidden = results.length === 0;
+    rmInput.setAttribute('aria-expanded', String(!list.hidden));
+    const q = rmInput.value.trim();
+    notFound.hidden = !(q.length >= 2 && searchedQ === q && results.length === 0 && !customer);
+    list._opts = results;
   }
   const runSearch = debounce(async () => {
-    const q = nameInput.value.trim();
-    if (q.length < 2) { results = []; renderList(); return; }
+    const q = rmInput.value.trim();
+    if (q.length < 2) { results = []; searchedQ = ''; renderList(); return; }
     const id = ++reqId;
     try {
       const r = await api(`/api/customers/search?q=${encodeURIComponent(q)}`);
       if (id !== reqId) return;
       results = r.customers;
-    } catch { results = []; }
+      searchedQ = q;
+    } catch { results = []; searchedQ = ''; }
     renderList();
   }, 200);
 
-  function pick(o) {
+  function pick(c) {
+    customer = c;
     list.hidden = true;
-    nameInput.setAttribute('aria-expanded', 'false');
-    if (o.kind === 'existing') {
-      customer = o.c;
-      isNew = false;
-      nameField.hidden = true;
-      phoneRow.hidden = true;
-      picked.hidden = false;
-      picked.replaceChildren(
-        h('span', { class: 'chip-ok__tick' }, icon('check', 13)),
-        h('span', { class: 'chip-ok__text' }, h('b', null, o.c.name), h('small', null, `${fmtPhone(o.c.phone)} · terverifikasi`)),
-        h('button', { class: 'link', type: 'button', onclick: resetCustomer }, 'Ganti'));
-    } else {
-      customer = null;
-      isNew = true;
-      nameInput.value = o.name;
-      phoneRow.hidden = false;
-      phoneInput.focus();
-    }
+    notFound.hidden = true;
+    rmInput.setAttribute('aria-expanded', 'false');
+    rmField.hidden = true;
+    picked.hidden = false;
+    picked.replaceChildren(
+      h('span', { class: 'chip-ok__tick' }, icon('check', 13)),
+      h('span', { class: 'chip-ok__text' }, h('b', null, c.name), h('small', null, `No RM ${c.rm_no} · terverifikasi`)),
+      h('button', { class: 'link', type: 'button', onclick: resetCustomer }, 'Ganti'));
     refresh();
   }
   function resetCustomer() {
-    customer = null; isNew = false; results = []; active = -1;
-    nameInput.value = '';
-    if (!selected.size) note.value = '';
-    phoneInput.value = '';
-    phoneHint.textContent = 'Customer ini belum ada di data. Isi nomor WA-nya.';
-    nameField.hidden = false;
+    customer = null; results = []; searchedQ = ''; active = -1;
+    rmInput.value = '';
+    rmField.hidden = false;
     picked.hidden = true;
-    phoneRow.hidden = true;
     list.hidden = true;
+    notFound.hidden = true;
     refresh();
   }
 
-  nameInput.addEventListener('input', () => {
-    customer = null; isNew = false; phoneRow.hidden = true; active = 0;
-    runSearch();
-    refresh();
-  });
-  nameInput.addEventListener('keydown', (e) => {
+  rmInput.addEventListener('input', () => { customer = null; active = 0; notFound.hidden = true; runSearch(); refresh(); });
+  rmInput.addEventListener('keydown', (e) => {
     const opts = list._opts || [];
     if (e.key === 'ArrowDown' && opts.length) { e.preventDefault(); active = (active + 1) % opts.length; renderList(); }
     else if (e.key === 'ArrowUp' && opts.length) { e.preventDefault(); active = (active - 1 + opts.length) % opts.length; renderList(); }
     else if (e.key === 'Enter' && !list.hidden && opts[active]) { e.preventDefault(); pick(opts[active]); }
     else if (e.key === 'Escape' && !list.hidden) { e.stopPropagation(); list.hidden = true; }
   });
-  nameInput.addEventListener('blur', () => { setTimeout(() => { list.hidden = true; }, 120); });
-  nameInput.addEventListener('focus', () => { if (nameInput.value.trim().length >= 2) renderList(); });
-  phoneInput.addEventListener('input', () => {
-    const n = normalizePhone(phoneInput.value);
-    phoneHint.textContent = n ? `Akan disimpan sebagai ${fmtPhone(n)}` : 'Nomor WA belum lengkap.';
-    refresh();
-  });
+  rmInput.addEventListener('blur', () => { setTimeout(() => { list.hidden = true; }, 120); });
+  rmInput.addEventListener('focus', () => { if (results.length) renderList(); });
 
   submit.addEventListener('click', async () => {
-    if (!readyToSubmit()) return;
+    if (!customer || selected.size === 0) return;
     submit.disabled = true;
-    const body = { service_ids: [...selected.keys()] };
-    body.note = note.value.trim();
-    if (customer) body.customer_id = customer.id;
-    else { body.customer_name = nameInput.value.trim(); body.customer_phone = phoneInput.value; }
+    const body = { service_ids: [...selected.keys()], customer_id: customer.id };
     try {
       const r = await api('/api/records', { method: 'POST', body });
       toast(`${r.count} layanan tercatat untuk ${r.customer.name}`);
       for (const id of [...selected.keys()]) setSelected(cards.get(id), false);
       selected.clear();
-      note.value = '';
       resetCustomer();
       loadToday();
     } catch (e) {
@@ -234,7 +207,7 @@ async function servicesView(main, user) {
       const { totals } = await api(`/api/records/mine?from=${d}&to=${d}`);
       todayLine.textContent = totals.services
         ? `Hari ini kamu sudah mencatat ${fmtNum(totals.services)} layanan untuk ${fmtNum(totals.customers)} customer.`
-        : 'Ketuk satu atau lebih kotak, lalu isi customer.';
+        : 'Mulai dengan mengisi No RM customer di kotak atas.';
     } catch { /* abaikan */ }
   }
 
@@ -249,7 +222,7 @@ async function servicesView(main, user) {
 
 // ======================= TAB RIWAYAT =======================
 function historyView(main) {
-  const q = h('input', { class: 'input', type: 'search', id: 'h-q', placeholder: 'Cari nama, nomor WA, atau layanan' });
+  const q = h('input', { class: 'input', type: 'search', id: 'h-q', placeholder: 'Cari No RM, nama, nomor WA, atau layanan' });
   // Default: hanya customer yang diinput hari ini. Ubah tanggal untuk melihat hari lain; kosongkan untuk semua.
   const todayStr = jakartaToday();
   const from = h('input', { class: 'input', type: 'date', id: 'h-from', value: todayStr });
@@ -273,13 +246,13 @@ function historyView(main) {
         return;
       }
       body.replaceChildren(h('div', { class: 'table-wrap' }, h('table', null,
-        h('thead', null, h('tr', null, ['Tanggal', 'Customer', 'No WA', 'Layanan', 'Rekam Medis', ''].map((t) => h('th', null, t)))),
+        h('thead', null, h('tr', null, ['Tanggal', 'No RM', 'Customer', 'No WA', 'Layanan', ''].map((t) => h('th', null, t)))),
         h('tbody', null, records.map((r) => h('tr', null,
           h('td', { class: 'nowrap' }, fmtDate(r.created_at)),
+          h('td', { class: 'nowrap' }, r.customer_rm || '–'),
           h('td', null, h('b', null, r.customer_name)),
           h('td', { class: 'nowrap' }, fmtPhone(r.customer_phone)),
           h('td', null, r.service_name),
-          h('td', { class: 'note-cell', title: r.note || null }, r.note || '–'),
           h('td', null, r.locked ? h('span', { class: 'pill', title: 'Sudah di-approve, tidak bisa dihapus' }, 'Terkunci') : h('div', { class: 'row-actions' },
             h('button', {
               class: 'icon-btn icon-btn--danger', type: 'button', 'aria-label': `Hapus ${r.service_name} untuk ${r.customer_name}`, title: 'Hapus',

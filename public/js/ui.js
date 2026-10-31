@@ -168,3 +168,11 @@ export function field(label, input, hint) {
   input.id = id;
   return h('div', { class: 'field' }, h('label', { for: id }, label), input, hint ? h('p', { class: 'hint' }, hint) : null);
 }
+
+// ---------- data customer ----------
+export const GENDER_LABEL = { L: 'Laki-laki', P: 'Perempuan', '': '' };
+// "1990-03-05" -> "05/03/1990" (tanpa konversi zona waktu)
+export function fmtBirth(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+}

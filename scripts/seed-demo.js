@@ -23,8 +23,11 @@ tx(() => {
   });
   const custIds = names.map((n, i) => {
     const phone = `62812${String(3000000 + i * 137)}`;
-    const row = db.prepare('SELECT id FROM customers WHERE name = ? AND phone = ?').get(n, phone);
-    return row ? row.id : Number(db.prepare('INSERT INTO customers (name, phone, created_at) VALUES (?, ?, ?)').run(n, phone, new Date(now).toISOString()).lastInsertRowid);
+    const rm = `RM-${String(1001 + i)}`;
+    const row = db.prepare('SELECT id FROM customers WHERE rm_no = ?').get(rm);
+    return row ? row.id : Number(db.prepare(`INSERT INTO customers (rm_no, reimburse, name, gender, birth_date, phone, occupation, domicile, month, reference, origin, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(rm, i % 3 === 0 ? 'Ya' : 'Tidak', n, i % 2 ? 'L' : 'P', `${1980 + i}-0${(i % 9) + 1}-15`, phone,
+      ['Karyawan', 'Atlet', 'Guru', 'Wiraswasta'][i % 4], ['Depok', 'Jakarta Selatan', 'Bogor'][i % 3], 'Oktober 2026', ['Instagram', 'Teman', 'Dokter'][i % 3], i < 8 ? 'awal' : 'baru', new Date(now).toISOString()).lastInsertRowid);
   });
   let seed = 7;
   const rnd = (n) => { seed = (seed * 9301 + 49297) % 233280; return Math.floor((seed / 233280) * n); };

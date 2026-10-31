@@ -9,6 +9,9 @@ import {
 } from './util.js';
 import { toCsv, toXlsx } from './exporter.js';
 import { ymd } from './clock.js';
+import {
+  CUSTOMER_HEADERS, cleanCustomer, insertCustomer, updateCustomer, findByRm, importCustomers, customerExportRow,
+} from './customers.js';
 
 const nowIso = () => new Date().toISOString();
 const isSv = (u) => u.role === 'supervisor';
@@ -21,7 +24,6 @@ const ints = (arr, max = 50) => {
   return out.every((n) => Number.isInteger(n) && n > 0) ? out : null;
 };
 const requireWorker = (user) => { if (user.role !== 'user') throw new HttpError(403, 'Hanya akun user yang menginput layanan'); };
-const cleanNote = (v) => String(v ?? '').replace(/\r\n/g, '\n').trim().slice(0, 2000);
 
 // Periode memakai kolom `day` (tanggal zona Jakarta), jadi konsisten dengan approve harian.
 function periodWhere(query, alias = 'r') {
@@ -35,7 +37,7 @@ function periodWhere(query, alias = 'r') {
 // Komisi hanya ikut dikirim untuk supervisor.
 function recordSelect(withCommission) {
   return `SELECT r.id, r.created_at, r.day, r.note, r.batch, r.source, ${withCommission ? 'r.commission,' : ''}
-         c.id AS customer_id, c.name AS customer_name, c.phone AS customer_phone,
+         c.id AS customer_id, c.rm_no AS customer_rm, c.name AS customer_name, c.phone AS customer_phone,
          s.id AS service_id, s.name AS service_name, u.id AS user_id, u.name AS user_name,
          (dr.day IS NOT NULL) AS locked
   FROM records r
@@ -43,13 +45,6 @@ function recordSelect(withCommission) {
   JOIN services s ON s.id = r.service_id
   JOIN users u ON u.id = r.user_id
   LEFT JOIN day_reviews dr ON dr.user_id = r.user_id AND dr.day = r.day`;
-}
-
-function findOrCreateCustomer(name, phone) {
-  const existing = db.prepare('SELECT id, name, phone FROM customers WHERE name = ? AND phone = ?').get(name, phone);
-  if (existing) return existing;
-  const info = db.prepare('INSERT INTO customers (name, phone, created_at) VALUES (?, ?, ?)').run(name, phone, nowIso());
-  return { id: Number(info.lastInsertRowid), name, phone };
 }
 
 function createRecords({ userId, customer, serviceIds, source, note }) {
@@ -71,17 +66,16 @@ function createRecords({ userId, customer, serviceIds, source, note }) {
   });
 }
 
+// Customer hanya dicocokkan dengan data yang sudah dimasukkan admin (lewat id atau No RM).
+// Customer yang belum ada tidak dibuat otomatis: user wajib melapor ke admin.
 function resolveCustomer(body) {
-  if (body.customer_id) {
-    const c = db.prepare('SELECT id, name, phone FROM customers WHERE id = ?').get(Number(body.customer_id));
-    if (!c) throw new HttpError(400, 'Customer tidak ditemukan');
-    return c;
-  }
-  const name = cleanName(body.customer_name);
-  const phone = normalizePhone(body.customer_phone);
-  if (!name) throw new HttpError(400, 'Nama customer minimal 2 huruf');
-  if (!phone) throw new HttpError(400, 'Nomor WA tidak valid');
-  return findOrCreateCustomer(name, phone);
+  const cols = 'SELECT id, rm_no, name, phone FROM customers';
+  let c = null;
+  if (body.customer_id) c = db.prepare(`${cols} WHERE id = ?`).get(Number(body.customer_id));
+  else if (String(body.customer_rm || '').trim()) c = db.prepare(`${cols} WHERE rm_no = ?`).get(String(body.customer_rm).trim());
+  else throw new HttpError(400, 'Isi No RM lalu pilih customer yang sesuai');
+  if (!c) throw new HttpError(404, 'Customer tidak ditemukan. Laporkan ke admin untuk memasukkan data customer baru.');
+  return c;
 }
 
 function sendExport(res, { format, filename, sheets }) {
@@ -139,18 +133,15 @@ add('GET', '/api/services', 'user', () => ({
   services: db.prepare('SELECT id, position, name, photo FROM services ORDER BY position').all(),
 }));
 
-// Akun user hanya melihat customer yang pernah dilayani dirinya sendiri (bukan data global).
-add('GET', '/api/customers/search', 'user', ({ user, query }) => {
+// Pencarian customer untuk input layanan: hanya lewat No RM, dan hanya mengembalikan No RM + nama.
+add('GET', '/api/customers/search', 'user', ({ query }) => {
   const q = String(query.q || '').trim();
   if (q.length < 2) return { customers: [] };
-  const digits = q.replace(/\D/g, '');
-  const withPhone = digits.length >= 3;
-  const own = user.role === 'user' ? 'AND id IN (SELECT customer_id FROM records WHERE user_id = ?)' : '';
   const rows = db.prepare(`
-    SELECT id, name, phone FROM customers
-    WHERE (name LIKE ? ESCAPE '\\' ${withPhone ? "OR phone LIKE ? ESCAPE '\\'" : ''}) ${own}
-    ORDER BY (name LIKE ? ESCAPE '\\') DESC, name LIMIT 8
-  `).all(...[likePattern(q), ...(withPhone ? [likePattern(digits)] : []), ...(own ? [user.id] : []), `${q.replace(/[\\%_]/g, '\\$&')}%`]);
+    SELECT id, rm_no, name FROM customers
+    WHERE rm_no IS NOT NULL AND rm_no LIKE ? ESCAPE '\\'
+    ORDER BY (rm_no = ?) DESC, (rm_no LIKE ? ESCAPE '\\') DESC, rm_no LIMIT 8
+  `).all(likePattern(q), q, `${q.replace(/[\\%_]/g, '\\$&')}%`);
   return { customers: rows };
 });
 
@@ -160,7 +151,7 @@ add('POST', '/api/records', 'user', ({ user, body }) => {
   const serviceIds = ints(body.service_ids);
   if (!serviceIds) throw new HttpError(400, 'Pilih minimal satu layanan');
   const customer = resolveCustomer(body);
-  const count = createRecords({ userId: user.id, customer, serviceIds, source: 'web', note: cleanNote(body.note) });
+  const count = createRecords({ userId: user.id, customer, serviceIds, source: 'web', note: '' });
   return { ok: true, count, customer };
 });
 
@@ -170,15 +161,16 @@ function myRecords(userId, query, limit = 1000) {
   args.unshift(userId);
   const q = String(query.q || '').trim();
   if (q) {
-    where.push("(c.name LIKE ? ESCAPE '\\' OR c.phone LIKE ? ESCAPE '\\' OR s.name LIKE ? ESCAPE '\\')");
-    args.push(likePattern(q), likePattern(q.replace(/\D/g, '') || q), likePattern(q));
+    where.push("(c.name LIKE ? ESCAPE '\\' OR c.rm_no LIKE ? ESCAPE '\\' OR c.phone LIKE ? ESCAPE '\\' OR s.name LIKE ? ESCAPE '\\')");
+    args.push(likePattern(q), likePattern(q), likePattern(q.replace(/\D/g, '') || q), likePattern(q));
   }
   return db.prepare(`${recordSelect(false)} WHERE ${where.join(' AND ')} ORDER BY r.id DESC LIMIT ${limit}`).all(...args);
 }
 
 add('GET', '/api/records/mine', 'user', ({ user, query }) => {
   requireWorker(user);
-  const rows = myRecords(user.id, query);
+  // Catatan medis dikelola admin/supervisor; tidak dikirim ke user.
+  const rows = myRecords(user.id, query).map(({ note, ...r }) => r);
   return { records: rows, totals: { customers: new Set(rows.map((r) => r.customer_id)).size, services: rows.length } };
 });
 
@@ -190,8 +182,8 @@ add('GET', '/api/records/mine/export', 'user', ({ user, query, res }) => {
     filename: `riwayat-customer-${stamp()}`,
     sheets: [{
       name: 'Riwayat Customer',
-      headers: ['Tanggal', 'Nama Customer', 'No WA', 'Layanan'],
-      rows: rows.map((r) => [formatDateTime(r.created_at), r.customer_name, r.customer_phone, r.service_name]),
+      headers: ['Tanggal', 'No RM', 'Nama Customer', 'No WA', 'Layanan'],
+      rows: rows.map((r) => [formatDateTime(r.created_at), r.customer_rm || '', r.customer_name, r.customer_phone, r.service_name]),
     }],
   });
   return null;
@@ -331,9 +323,9 @@ add('GET', '/api/staff/export', 'staff', ({ user, query, res }) => {
     sheets: [
       {
         name: 'Laporan',
-        headers: ['Tanggal', 'User', 'Nama Customer', 'No WA', 'Layanan', ...(sv ? ['Komisi (Rp)'] : [])],
-        rpCols: sv ? [5] : [],
-        rows: rows.map((r) => [formatDateTime(r.created_at), r.user_name, r.customer_name, r.customer_phone, r.service_name, ...(sv ? [r.commission] : [])]),
+        headers: ['Tanggal', 'User', 'No RM', 'Nama Customer', 'No WA', 'Layanan', ...(sv ? ['Komisi (Rp)'] : [])],
+        rpCols: sv ? [6] : [],
+        rows: rows.map((r) => [formatDateTime(r.created_at), r.user_name, r.customer_rm || '', r.customer_name, r.customer_phone, r.service_name, ...(sv ? [r.commission] : [])]),
       },
       {
         name: 'Layanan Terpopuler',
@@ -353,49 +345,127 @@ add('GET', '/api/staff/export', 'staff', ({ user, query, res }) => {
   return null;
 });
 
-// ----- staff: customer global -----
-add('GET', '/api/staff/customers', 'staff', ({ query }) => {
+// ----- staff: grafik donat -----
+// Dikelompokkan: 5 terbesar + "Lainnya" supaya donat tetap terbaca.
+function donut(items, topN = 5) {
+  const rows = items.filter((i) => i.value > 0);
+  const total = rows.reduce((a, i) => a + i.value, 0);
+  if (rows.length > topN + 1) {
+    const rest = rows.slice(topN).reduce((a, i) => a + i.value, 0);
+    return { total, items: [...rows.slice(0, topN), { label: 'Lainnya', value: rest }] };
+  }
+  return { total, items: rows };
+}
+
+add('GET', '/api/staff/charts', 'staff', ({ query }) => {
+  const { where, args } = periodWhere(query);
+  const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  // Kunjungan = satu kali input (satu customer, satu waktu), walau memilih beberapa layanan.
+  const visits = db.prepare(`
+    SELECT u.name AS label, COUNT(DISTINCT r.batch) AS value FROM records r JOIN users u ON u.id = r.user_id
+    ${w} GROUP BY u.id ORDER BY value DESC, u.name COLLATE NOCASE`).all(...args);
+  const services = usageRows(query).map((s) => ({ label: s.name, value: s.uses }));
+  const origin = Object.fromEntries(db.prepare('SELECT origin, COUNT(*) AS n FROM customers GROUP BY origin').all().map((r) => [r.origin, r.n]));
+  const gender = Object.fromEntries(db.prepare('SELECT gender, COUNT(*) AS n FROM customers GROUP BY gender').all().map((r) => [r.gender, r.n]));
+  return {
+    charts: {
+      visits: donut(visits),
+      services: donut(services),
+      customers: donut([{ label: 'Data awal (admin/supervisor)', value: origin.awal || 0 }, { label: 'Customer baru', value: origin.baru || 0 }]),
+      gender: donut([{ label: 'Laki-laki', value: gender.L || 0 }, { label: 'Perempuan', value: gender.P || 0 }, { label: 'Belum diisi', value: gender[''] || 0 }]),
+    },
+  };
+});
+
+// ----- staff: data customer (diupload / ditambah admin & supervisor) -----
+const CUSTOMER_COLS = 'c.id, c.rm_no, c.reimburse, c.name, c.gender, c.birth_date, c.phone, c.occupation, c.domicile, c.month, c.reference, c.origin';
+const SEARCH_COLS = ['c.rm_no', 'c.name', 'c.reimburse', 'c.occupation', 'c.domicile', 'c.month', 'c.reference'];
+const PAGE_SIZE = 50;
+
+function customerFilter(query) {
   const q = String(query.q || '').trim();
-  const where = [];
-  const args = [];
-  if (q) {
-    where.push("(c.name LIKE ? ESCAPE '\\' OR c.phone LIKE ? ESCAPE '\\')");
-    args.push(likePattern(q), likePattern(q.replace(/\D/g, '') || q));
-  }
+  if (!q) return { where: '', args: [] };
+  const digits = q.replace(/\D/g, '');
+  const conds = SEARCH_COLS.map((col) => `${col} LIKE ? ESCAPE '\\'`);
+  const args = SEARCH_COLS.map(() => likePattern(q));
+  if (digits.length >= 3) { conds.push("c.phone LIKE ? ESCAPE '\\'"); args.push(likePattern(digits)); }
+  return { where: `WHERE (${conds.join(' OR ')})`, args };
+}
+
+add('GET', '/api/staff/customers', 'staff', ({ query }) => {
+  const { where, args } = customerFilter(query);
+  const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
+  const total = db.prepare(`SELECT COUNT(*) AS n FROM customers c ${where}`).get(...args).n;
+  const offset = (page - 1) * PAGE_SIZE;
   const customers = db.prepare(`
-    SELECT c.id, c.name, c.phone, COUNT(r.id) AS total_services, COUNT(DISTINCT r.batch) AS visits, MAX(r.created_at) AS last_visit
-    FROM customers c JOIN records r ON r.customer_id = c.id
-    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-    GROUP BY c.id ORDER BY last_visit DESC LIMIT 300`).all(...args);
-  if (customers.length) {
-    const ids = customers.map((c) => c.id);
-    const svc = db.prepare(`
-      SELECT r.customer_id, s.name, COUNT(*) AS n FROM records r JOIN services s ON s.id = r.service_id
-      WHERE r.customer_id IN (${ids.map(() => '?').join(',')}) GROUP BY r.customer_id, r.service_id ORDER BY n DESC, s.position`).all(...ids);
-    const map = new Map();
-    for (const row of svc) { if (!map.has(row.customer_id)) map.set(row.customer_id, []); map.get(row.customer_id).push({ name: row.name, n: row.n }); }
-    for (const c of customers) c.services = map.get(c.id) || [];
-    // Catatan medis lengkap dari semua input. Satu catatan yang dipakai untuk beberapa layanan (satu input)
-    // tersimpan di tiap baris layanan, jadi digabung per (customer, tanggal, user, isi) agar tidak dobel.
-    const notes = db.prepare(`
-      SELECT r.customer_id, r.day, MIN(r.created_at) AS created_at, u.name AS therapist, r.note,
-             GROUP_CONCAT(DISTINCT s.name) AS services
-      FROM records r JOIN users u ON u.id = r.user_id JOIN services s ON s.id = r.service_id
-      WHERE r.customer_id IN (${ids.map(() => '?').join(',')}) AND TRIM(r.note) <> ''
-      GROUP BY r.customer_id, r.day, r.user_id, r.note
-      ORDER BY created_at DESC`).all(...ids);
-    const nmap = new Map();
-    for (const n of notes) {
-      if (!nmap.has(n.customer_id)) nmap.set(n.customer_id, []);
-      nmap.get(n.customer_id).push({ day: n.day, created_at: n.created_at, therapist: n.therapist, note: n.note, services: n.services.split(',') });
-    }
-    for (const c of customers) c.notes = nmap.get(c.id) || [];
-  }
-  return { customers };
+    SELECT ${CUSTOMER_COLS},
+           (SELECT COUNT(DISTINCT batch) FROM records WHERE customer_id = c.id) AS visits,
+           (SELECT MAX(created_at) FROM records WHERE customer_id = c.id) AS last_visit
+    FROM customers c ${where} ORDER BY c.id LIMIT ? OFFSET ?`).all(...args, PAGE_SIZE, offset);
+  return { customers, total, page, page_size: PAGE_SIZE, offset };
+});
+
+// Tarik data: kolom sama persis dengan tabel Customer (No | No RM | Reimburse | Nama | ... | Referensi).
+add('GET', '/api/staff/customers/export', 'staff', ({ query, res }) => {
+  const { where, args } = customerFilter(query);
+  const rows = db.prepare(`SELECT ${CUSTOMER_COLS} FROM customers c ${where} ORDER BY c.id LIMIT 200000`).all(...args);
+  sendExport(res, {
+    format: query.format,
+    filename: `data-customer-${stamp()}`,
+    sheets: [{
+      name: 'Data Customer', headers: CUSTOMER_HEADERS, intCols: [0], widths: [6, 16, 14, 28, 15, 13, 18, 20, 20, 14, 22],
+      rows: rows.map((c, i) => customerExportRow(c, i + 1)),
+    }],
+  });
+  return null;
+});
+
+// Template kosong (hanya baris judul) untuk diisi lalu diupload.
+add('GET', '/api/staff/customers/template', 'staff', ({ query, res }) => {
+  sendExport(res, {
+    format: query.format,
+    filename: 'template-data-customer',
+    sheets: [{ name: 'Data Customer', headers: CUSTOMER_HEADERS, intCols: [0], widths: [6, 16, 14, 28, 15, 13, 18, 20, 20, 14, 22], rows: [] }],
+  });
+  return null;
+});
+
+add('POST', '/api/staff/customers/import', 'staff', ({ body }) => ({ result: importCustomers(String(body.format || ''), body.content) }));
+
+const customerBody = (body) => {
+  const { value, warnings } = cleanCustomer({
+    rm_no: body.rm_no, reimburse: body.reimburse, name: body.name, gender: body.gender, birth_date: body.birth_date,
+    phone: body.phone, occupation: body.occupation, domicile: body.domicile, month: body.month, reference: body.reference,
+  });
+  if (warnings.length) throw new HttpError(400, warnings[0]);
+  return value;
+};
+
+add('POST', '/api/staff/customers', 'staff', ({ body }) => {
+  const value = customerBody(body);
+  // 'baru' = customer baru yang dilaporkan user; 'awal' = tambahan untuk data awal.
+  const origin = body.origin === 'awal' ? 'awal' : 'baru';
+  const id = tx(() => {
+    if (findByRm(value.rm_no)) throw new HttpError(409, `No RM ${value.rm_no} sudah terdaftar`);
+    return insertCustomer(value, origin);
+  });
+  return { ok: true, id };
+});
+
+add('PATCH', '/api/staff/customers/:id', 'staff', ({ params, body }) => {
+  const id = Number(params.id);
+  if (!db.prepare('SELECT 1 FROM customers WHERE id = ?').get(id)) throw new HttpError(404, 'Customer tidak ditemukan');
+  const value = customerBody(body);
+  tx(() => {
+    if (db.prepare('SELECT 1 FROM customers WHERE rm_no = ? AND id <> ?').get(value.rm_no, id)) throw new HttpError(409, `No RM ${value.rm_no} sudah dipakai customer lain`);
+    updateCustomer(id, value);
+    if (body.origin === 'awal' || body.origin === 'baru') db.prepare('UPDATE customers SET origin = ? WHERE id = ?').run(body.origin, id);
+  });
+  return { ok: true };
 });
 
 add('GET', '/api/staff/customers/:id/visits', 'staff', ({ params }) => {
-  const c = db.prepare('SELECT id, name, phone FROM customers WHERE id = ?').get(Number(params.id));
+  const c = db.prepare(`SELECT ${CUSTOMER_COLS} FROM customers c WHERE c.id = ?`).get(Number(params.id));
   if (!c) throw new HttpError(404, 'Customer tidak ditemukan');
   const rows = db.prepare(`
     SELECT r.batch, r.created_at, r.day, r.note, s.name AS service, u.name AS therapist
@@ -507,22 +577,26 @@ add('PATCH', '/api/sv/accounts/:id', 'sv', ({ params, body, user }) => {
 });
 
 // ----- integrasi WA bot (header: X-API-Key) -----
+// Alur sama dengan user web: customer dicari lewat No RM dari data admin; bot tidak membuat customer baru.
 const botCustomer = (c) => {
   const stats = db.prepare('SELECT COUNT(DISTINCT batch) AS visits, MAX(created_at) AS last_visit FROM records WHERE customer_id = ?').get(c.id);
-  return { id: c.id, name: c.name, phone: c.phone, visits: stats.visits, last_visit: stats.last_visit };
+  return { id: c.id, rm_no: c.rm_no, name: c.name, phone: c.phone, visits: stats.visits, last_visit: stats.last_visit };
 };
 add('GET', '/api/bot/services', 'bot', () => ({ services: db.prepare('SELECT id, position, name FROM services ORDER BY position').all() }));
 add('GET', '/api/bot/customers', 'bot', ({ query }) => {
   const q = String(query.q || '').trim();
+  const rm = String(query.rm || '').trim();
   const phone = normalizePhone(query.phone);
+  const cols = 'SELECT id, rm_no, name, phone FROM customers';
   let rows;
-  if (phone) rows = db.prepare('SELECT id, name, phone FROM customers WHERE phone = ? ORDER BY name LIMIT 20').all(phone);
-  else if (q.length >= 2) rows = db.prepare("SELECT id, name, phone FROM customers WHERE name LIKE ? ESCAPE '\\' ORDER BY name LIMIT 20").all(likePattern(q));
-  else throw new HttpError(400, 'Isi ?phone=... atau ?q=... (minimal 2 huruf)');
+  if (rm) rows = db.prepare(`${cols} WHERE rm_no = ? LIMIT 1`).all(rm);
+  else if (phone) rows = db.prepare(`${cols} WHERE phone = ? ORDER BY name LIMIT 20`).all(phone);
+  else if (q.length >= 2) rows = db.prepare(`${cols} WHERE name LIKE ? ESCAPE '\\' ORDER BY name LIMIT 20`).all(likePattern(q));
+  else throw new HttpError(400, 'Isi ?rm=... , ?phone=... atau ?q=... (minimal 2 huruf)');
   return { customers: rows.map(botCustomer) };
 });
 add('GET', '/api/bot/customers/:id/history', 'bot', ({ params }) => {
-  const c = db.prepare('SELECT id, name, phone FROM customers WHERE id = ?').get(Number(params.id));
+  const c = db.prepare('SELECT id, rm_no, name, phone FROM customers WHERE id = ?').get(Number(params.id));
   if (!c) throw new HttpError(404, 'Customer tidak ditemukan');
   const history = db.prepare(`
     SELECT r.id, r.created_at, s.name AS service, u.name AS served_by
@@ -536,7 +610,7 @@ add('POST', '/api/bot/records', 'bot', ({ body }) => {
   const serviceIds = ints(body.service_ids);
   if (!serviceIds) throw new HttpError(400, 'service_ids wajib berisi daftar id layanan');
   const customer = resolveCustomer(body);
-  const count = createRecords({ userId: u.id, customer, serviceIds, source: 'bot', note: cleanNote(body.note) });
+  const count = createRecords({ userId: u.id, customer, serviceIds, source: 'bot', note: '' });
   return { ok: true, count, customer };
 });
 

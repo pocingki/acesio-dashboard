@@ -22,7 +22,7 @@ function colName(i) {
   return s;
 }
 
-function sheetXml(headers, rows, rpCols, intCols, hasDrawing) {
+function sheetXml(headers, rows, rpCols, intCols, hasDrawing, widths) {
   const cell = (v, r, c, header) => {
     const ref = `${colName(c)}${r}`;
     if (!header && typeof v === 'number' && (rpCols.has(c) || intCols.has(c))) return `<c r="${ref}" s="${rpCols.has(c) ? 2 : 3}"><v>${v}</v></c>`;
@@ -32,7 +32,7 @@ function sheetXml(headers, rows, rpCols, intCols, hasDrawing) {
   let xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
     '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' +
-    '<cols>' + headers.map((_, i) => `<col min="${i + 1}" max="${i + 1}" width="${i === 0 ? 24 : 22}" customWidth="1"/>`).join('') + '</cols><sheetData>';
+    '<cols>' + headers.map((_, i) => `<col min="${i + 1}" max="${i + 1}" width="${widths?.[i] ?? (i === 0 ? 24 : 22)}" customWidth="1"/>`).join('') + '</cols><sheetData>';
   xml += '<row r="1">' + headers.map((h, c) => cell(h, 1, c, true)).join('') + '</row>';
   rows.forEach((row, i) => {
     xml += `<row r="${i + 2}">` + row.map((v, c) => cell(v, i + 2, c, false)).join('') + '</row>';
@@ -141,7 +141,7 @@ export function toXlsx(sheets) {
     const n = i + 1;
     const chartRows = sh.chart ? sh.rows.length : 0;
     const hasChart = !!sh.chart && chartRows > 0;
-    files.push([`xl/worksheets/sheet${n}.xml`, sheetXml(sh.headers, sh.rows, new Set(sh.rpCols || []), new Set(sh.intCols || []), hasChart)]);
+    files.push([`xl/worksheets/sheet${n}.xml`, sheetXml(sh.headers, sh.rows, new Set(sh.rpCols || []), new Set(sh.intCols || []), hasChart, sh.widths)]);
     overrides.push(`<Override PartName="/xl/worksheets/sheet${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`);
     wbSheets.push(`<sheet name="${esc(sh.name.slice(0, 31))}" sheetId="${n}" r:id="rId${n}"/>`);
     wbRels.push(REL(`rId${n}`, 'worksheet', `worksheets/sheet${n}.xml`));

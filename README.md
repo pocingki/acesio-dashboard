@@ -23,7 +23,8 @@ Ingin mencoba dengan data contoh? `npm run seed:demo` (user `sari`, `budi`, `dew
 
 | | User | Admin | Supervisor |
 |---|---|---|---|
-| Input layanan + Rekam Medis, riwayat sendiri | ya | – | – |
+| Input layanan (customer dipilih lewat No RM), riwayat sendiri | ya | – | – |
+| Upload / tambah / ubah / tarik data customer | – | ya | ya |
 | Lihat laporan, customer global, pemakaian layanan | – | ya | ya |
 | Lihat komisi | – | **tidak** | ya |
 | Approve data user + isi tepat waktu/terlambat | – | ya (sekali) | ya (bisa ubah/batalkan) |
@@ -37,7 +38,7 @@ Akun lama dari versi sebelumnya otomatis menjadi **Supervisor**, dan komisi per 
 **Supervisor**
 1. **Akun User**: tambah akun (jenis akun: User / Admin / Supervisor; untuk User pilih status kerja Karyawan tetap atau Part time).
 2. **Pengaturan Layanan** punya dua tab: *Kotak layanan* (nama dan foto 29 kotak) dan *Perbedaan komisi* (klik "Atur komisi" di sebuah user, nama user tampil paling atas, isi komisi tiap layanan). Tidak ada komisi umum: layanan yang belum diisi dihitung Rp0. Tersedia tombol "Salin dari user lain" untuk mempercepat.
-3. **Laporan**: total komisi, customer, pelayanan, hari terlambat, laporan terlambat harian, data user, dan pemakaian layanan.
+3. **Laporan**: total komisi, customer, pelayanan, hari terlambat, **grafik donat** (Kunjungan per terapis, Layanan, New customer, Jenis kelamin) di atas Laporan Kinerja, laporan terlambat harian, data user, dan pemakaian layanan. Kunjungan dan Layanan mengikuti filter tanggal; New customer dan Jenis kelamin memakai seluruh data customer.
 
 **Admin**: sama seperti supervisor untuk melihat laporan dan customer, tanpa angka komisi dan tanpa pengaturan.
 
@@ -45,19 +46,24 @@ Akun lama dari versi sebelumnya otomatis menjadi **Supervisor**, dan komisi per 
 
 **Laporan per layanan**: klik kartu **Total pelayanan** untuk melihat "Layanan 1 · use 4", dst. Daftar yang sama ada di bagian *Pemakaian layanan*.
 
-**Customer**: riwayat global (nama, no WA, semua layanan yang pernah diambil, riwayat terakhir). Klik tanggal riwayat terakhir untuk melihat semua waktu terapi beserta Rekam Medis.
+**Data customer (admin dan supervisor)** adalah sumber data awal. Menu **Customer** menampilkan tabel *No | No RM | Reimburse | Nama | Jenis Kelamin | Tgl Lahir | No WA | Pekerjaan | Domisili | Bulan | Referensi* beserta seluruh isinya (50 baris per halaman, bisa dicari).
+- **Upload data**: file CSV atau Excel (.xlsx) dengan baris judul yang sama (template kosong tersedia di jendela upload). Kolom *No RM* dan *Nama* wajib; kolom *No* diabaikan. No RM yang sudah ada diperbarui (sel kosong tidak menghapus data lama), yang belum ada ditambahkan. Baris bermasalah dilaporkan setelah upload.
+- **Tambah customer**: dipakai saat user melapor bahwa No RM tidak ditemukan. Pilih *Asal data*: **Customer baru** (dilaporkan user) atau **Data awal** (tambahan).
+- **Ubah**: edit semua kolom (termasuk mengisi No RM untuk customer lama yang belum punya).
+- **Tarik data**: CSV/Excel dengan kolom persis seperti tabel di atas.
+- Kolom **Riwayat** membuka semua waktu terapi beserta Rekam Medis.
 
 **Excel**: tombol Excel di Laporan berisi tiga sheet: *Laporan*, *Layanan Terpopuler* (nama + jumlah + grafik batang), dan *Keterlambatan*. Rekam Medis tidak ikut diekspor. Admin tidak mendapat kolom komisi.
 
 **User**
-1. Login lalu pilih satu atau lebih kotak layanan. Panel input muncul **di atas**.
-2. Ketik nama (atau nomor WA) customer, pilih dari saran. Jika belum ada, pilih "Customer baru" dan isi nomor WA.
-3. Isi **Rekam Medis** (satu catatan untuk semua layanan yang dipilih), lalu klik **Input**.
+1. Login. Panel input ada **di atas**, daftar kotak layanan di bawahnya.
+2. Alur: **isi No RM** → **klik No RM yang sesuai** di daftar saran → **pilih layanan** → **Input**. User tidak mengisi Rekam Medis; semua data customer dikelola admin dan supervisor. Kotak layanan baru bisa dipilih setelah customer dipilih.
+3. User tidak bisa membuat customer. Jika No RM tidak ditemukan, user **wajib melapor ke admin** untuk memasukkan data customer baru, lalu mencari lagi.
 4. Tab **Riwayat Customer**: lihat, cari, hapus data sendiri (selama belum terkunci), dan tarik data CSV/Excel. Komisi tidak pernah terlihat.
 
 ## Aturan data
 
-- **Customer** dikenali dari **nama + nomor WA** (dinormalisasi ke `62812...`).
+- **Customer** dikenali dari **No RM** (unik, tidak peduli huruf besar/kecil). Nomor WA dinormalisasi ke `62812...`. Customer lama dari versi sebelumnya tetap ada (ditandai *Customer baru*, No RM belum ada) dan No RM-nya diisi admin lewat tombol Ubah.
 - **Total customer** dihitung per orang unik, **total pelayanan** per layanan yang diinput.
 - **Komisi** diambil dari pengaturan user itu saat input. Mengubah komisi hanya berlaku untuk input berikutnya, kecuali supervisor mencentang "Terapkan juga ke data yang sudah tercatat".
 - **Hari** mengikuti zona waktu `APP_TZ` (default Asia/Jakarta).
@@ -67,7 +73,8 @@ Akun lama dari versi sebelumnya otomatis menjadi **Supervisor**, dan komisi per 
 Isi `BOT_API_KEY` di `.env`, lalu kirim header `X-API-Key` di setiap request. Semua respons JSON.
 
 ```bash
-# Cari customer by nomor WA atau nama
+# Cari customer by No RM (utama), nomor WA, atau nama
+curl -H "X-API-Key: $KEY" "http://localhost:3000/api/bot/customers?rm=RM-001"
 curl -H "X-API-Key: $KEY" "http://localhost:3000/api/bot/customers?phone=0812-3456-7890"
 curl -H "X-API-Key: $KEY" "http://localhost:3000/api/bot/customers?q=rina"
 
@@ -80,10 +87,10 @@ curl -H "X-API-Key: $KEY" http://localhost:3000/api/bot/services
 # Catat layanan atas nama terapis (username)
 curl -X POST -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
   http://localhost:3000/api/bot/records \
-  -d '{"username":"budi","customer_name":"Rina Wulandari","customer_phone":"081234567890","service_ids":[1,3]}'
+  -d '{"username":"budi","customer_rm":"RM-001","service_ids":[1,3]}'
 ```
 
-Data yang dicatat bot tampil di laporan seperti input biasa (ditandai "via WA bot"). Body boleh menyertakan `"note"` untuk Rekam Medis. Komisi mengikuti pengaturan user (`username`) tersebut, dan input ditolak jika hari itu sudah di-approve. Jika `customer_id` dikirim, nama dan nomor tidak perlu.
+Data yang dicatat bot tampil di laporan seperti input biasa (ditandai "via WA bot"). Bot tidak mengisi Rekam Medis. Komisi mengikuti pengaturan user (`username`) tersebut, dan input ditolak jika hari itu sudah di-approve. Customer ditentukan lewat `customer_rm` (No RM) atau `customer_id`. Seperti user web, bot **tidak membuat customer baru**: jika No RM tidak ada, responsnya 404 dan customer harus ditambahkan admin lebih dulu.
 
 ## Keamanan
 
@@ -99,7 +106,7 @@ Semua data ada di folder `data/` (`acesio.db` dan `uploads/` untuk foto layanan)
 ## Struktur
 
 ```
-server/   index.js (HTTP), routes.js (API), db.js (skema + migrasi), auth.js, exporter.js (CSV/XLSX + grafik), util.js, clock.js
-public/   index.html, css/app.css, js/ (login, user, admin, komponen)
+server/   index.js (HTTP), routes.js (API), db.js (skema + migrasi), customers.js (data customer + impor), importer.js (baca CSV/XLSX), auth.js, exporter.js (CSV/XLSX + grafik), util.js, clock.js
+public/   index.html, css/app.css, js/ (login, user, staff, customers, charts, komponen)
 scripts/  seed-demo.js
 ```

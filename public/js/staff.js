@@ -4,6 +4,8 @@ import {
   statusPill, empPill, field, EMP_LABEL, ROLE_LABEL,
 } from './ui.js';
 import { createShell } from './shell.js';
+import { donutCard } from './charts.js';
+import { customersView } from './customers.js';
 
 export function renderStaffApp(root, user, { onLogout }) {
   const sv = user.role === 'supervisor';
@@ -13,7 +15,7 @@ export function renderStaffApp(root, user, { onLogout }) {
     user, onLogout, tabs,
     onSelect: (id, main) => {
       if (id === 'report') reportView(main, user);
-      else if (id === 'customers') customersView(main);
+      else if (id === 'customers') customersView(main, user);
       else if (id === 'services') settingsView(main);
       else accountsView(main, user);
     },
@@ -32,6 +34,7 @@ function reportView(main, user) {
   const from = h('input', { class: 'input', type: 'date', value: todayStr });
   const to = h('input', { class: 'input', type: 'date', value: todayStr });
   const stats = h('div', { class: 'stats' });
+  const chartsBox = h('div', { class: 'charts' });
   const attBox = h('div');
   const usersBox = h('div');
   const csv = dl('CSV', '#');
@@ -72,8 +75,9 @@ function reportView(main, user) {
     csv.href = `/api/staff/export?${qs({ format: 'csv' })}`;
     xlsx.href = `/api/staff/export?${qs({ format: 'xlsx' })}`;
     try {
-      const [{ summary, attendance }, { users }, { rows, today }, { usage }] = await Promise.all([
+      const [{ summary, attendance }, { users }, { rows, today }, { usage }, { charts }] = await Promise.all([
         api(`/api/staff/summary?${qs()}`), api(`/api/staff/users?${qs()}`), api(`/api/staff/attendance?${qs()}`), api(`/api/staff/usage?${qs()}`),
+        api(`/api/staff/charts?${qs()}`),
       ]);
       usageData = usage;
       stats.replaceChildren(
@@ -83,6 +87,12 @@ function reportView(main, user) {
           stat('Total pelayanan', fmtNum(summary.services), { sub: 'Klik untuk rincian per layanan', onClick: showUsage }),
           stat('Hari terlambat', fmtNum(attendance.late), { sub: `${fmtNum(attendance.on_time)} tepat waktu · ${fmtNum(attendance.pending)} menunggu approve` }),
         ].filter(Boolean));
+
+      chartsBox.replaceChildren(
+        donutCard({ title: 'Kunjungan', subtitle: 'Per terapis · periode terpilih', unit: 'kunjungan', data: charts.visits }),
+        donutCard({ title: 'Layanan', subtitle: 'Pemakaian layanan · periode terpilih', unit: 'layanan', data: charts.services }),
+        donutCard({ title: 'New customer', subtitle: 'Data awal vs customer baru · seluruh data', unit: 'customer', data: charts.customers }),
+        donutCard({ title: 'Jenis kelamin', subtitle: 'Seluruh data customer', unit: 'customer', data: charts.gender }));
 
       attBox.replaceChildren(
         h('div', { class: 'summary-chips' },
@@ -128,6 +138,7 @@ function reportView(main, user) {
 
     } catch (e) {
       stats.replaceChildren();
+      chartsBox.replaceChildren();
       usersBox.replaceChildren(emptyState('Laporan belum bisa dimuat', e.message));
     }
   }
@@ -141,6 +152,8 @@ function reportView(main, user) {
         field('Dari tanggal', from), field('Sampai tanggal', to),
         h('div', { class: 'field' }, h('span', { class: 'label' }, 'Tarik data'), h('div', { class: 'toolbar' }, csv, xlsx)))),
     stats,
+    h('div', { class: 'section-head' }, h('h2', null, 'Grafik customer')),
+    chartsBox,
     h('div', { class: 'section-head' }, h('h2', null, 'Laporan Kinerja')),
     attBox,
     h('div', { class: 'section-head' }, h('h2', null, 'Data user')),
@@ -251,11 +264,12 @@ function openUserDetail(u, me, { day: startDay, period, onChanged }) {
       h('span', { class: 'pill' }, `${fmtNum(d.records.length)} pelayanan`),
       sv ? h('span', { class: 'pill' }, `${fmtRp(commission)} komisi`) : null,
     ];
-    const heads = ['Nama customer', 'No WA', 'Pelayanan', 'Rekam Medis', ...(sv ? ['Komisi'] : []), 'Jam', ...(sv ? [''] : [])];
+    const heads = ['No RM', 'Nama customer', 'No WA', 'Pelayanan', 'Rekam Medis', ...(sv ? ['Komisi'] : []), 'Jam', ...(sv ? [''] : [])];
     const table = d.records.length
       ? h('div', { class: 'table-wrap table-wrap--detail' }, h('table', { class: 'tbl-detail' },
         h('thead', null, h('tr', null, heads.map((t) => h('th', { class: t === 'Komisi' ? 'num' : null }, t)))),
         h('tbody', null, d.records.map((r) => h('tr', null,
+          h('td', { class: 'nowrap' }, r.customer_rm || h('span', { class: 'muted' }, '–')),
           h('td', null, h('b', null, r.customer_name)),
           h('td', { class: 'nowrap' }, fmtPhone(r.customer_phone)),
           h('td', null, r.service_name, r.source === 'bot' ? h('small', null, 'via WA bot') : null),
@@ -280,70 +294,6 @@ function openUserDetail(u, me, { day: startDay, period, onChanged }) {
       table));
   }
   load(startDay);
-}
-
-// ======================= CUSTOMER GLOBAL =======================
-function customersView(main) {
-  const q = h('input', { class: 'input', type: 'search', placeholder: 'Cari nama atau nomor WA' });
-  const box = h('div');
-  const summary = h('p', { class: 'muted' }, 'Memuat…');
-  let t;
-  async function load() {
-    try {
-      const { customers } = await api(`/api/staff/customers?q=${encodeURIComponent(q.value.trim())}`);
-      summary.textContent = `${fmtNum(customers.length)} customer${customers.length >= 300 ? ' (300 terbaru; persempit dengan pencarian)' : ''}`;
-      const cols = ['16%', '15%', '19%', '32%', '18%'];
-      box.replaceChildren(customers.length
-        ? h('div', { class: 'table-wrap' }, h('table', { class: 'tbl-cust' },
-          h('colgroup', null, cols.map((w) => { const c = h('col'); c.style.width = w; return c; })),
-          h('thead', null, h('tr', null, ['Nama', 'No WA', 'Layanan yang pernah diambil', 'Catatan riwayat medis', 'Riwayat terakhir'].map((x) => h('th', null, x)))),
-          h('tbody', null, customers.map((c) => h('tr', null,
-            h('td', null, h('b', null, c.name)),
-            h('td', { class: 'nowrap' }, fmtPhone(c.phone)),
-            h('td', null, h('div', { class: 'chip-list' },
-              c.services.slice(0, 3).map((s) => h('span', { class: 'mini' }, s.n > 1 ? `${s.name} ×${s.n}` : s.name)),
-              c.services.length > 3 ? h('span', { class: 'mini', title: c.services.slice(3).map((s) => s.name).join(', ') }, `+${c.services.length - 3} lagi`) : null)),
-            h('td', null, notesCell(c)),
-            h('td', null, h('button', { class: 'link nowrap', type: 'button', onclick: () => openVisits(c) }, fmtDate(c.last_visit)), h('small', null, `${fmtNum(c.visits)} kali terapi`)))))))
-        : h('div', { class: 'table-wrap' }, emptyState('Customer tidak ditemukan', 'Coba kata kunci lain, atau tunggu input pertama dari user.')));
-    } catch (e) { box.replaceChildren(emptyState('Customer belum bisa dimuat', e.message)); }
-  }
-  // Kolom tabel hanya menampilkan catatan medis terakhir; klik untuk semua catatan (satu entri per input, tanpa duplikat).
-  function notesCell(c) {
-    if (!c.notes.length) return h('span', { class: 'muted' }, '–');
-    const last = c.notes[0];
-    return h('div', null,
-      h('button', { class: 'link link--clamp', type: 'button', title: last.note, onclick: () => openNotes(c) }, last.note),
-      h('small', null, `${fmtDay(last.day, true)} · ${fmtNum(c.notes.length)} catatan`));
-  }
-  function openNotes(c) {
-    openModal({
-      title: `Catatan medis · ${c.name}`,
-      content: h('div', null,
-        h('p', { class: 'muted' }, `${fmtPhone(c.phone)} · ${fmtNum(c.notes.length)} catatan`),
-        h('div', { class: 'notes notes--full' }, c.notes.map((n) => h('div', { class: 'notes__item' },
-          h('div', { class: 'notes__meta' }, h('b', null, fmtDate(n.created_at)), ` · ${n.services.join(', ')} · ${n.therapist}`),
-          h('div', { class: 'note' }, n.note))))),
-    });
-  }
-  async function openVisits(c) {
-    const content = h('div', null, h('p', { class: 'muted' }, 'Memuat…'));
-    openModal({ title: c.name, content });
-    try {
-      const { visits } = await api(`/api/staff/customers/${c.id}/visits`);
-      content.replaceChildren(
-        h('p', { class: 'muted' }, `${fmtPhone(c.phone)} · ${fmtNum(visits.length)} kali terapi`),
-        ...visits.map((v) => h('div', { class: 'visit' },
-          h('b', null, fmtDate(v.created_at)),
-          h('div', { class: 'muted' }, `${v.services.join(', ')} · oleh ${v.therapist}`),
-          v.note ? h('div', { class: 'note note--gap' }, v.note) : null)));
-    } catch (e) { content.replaceChildren(emptyState('Riwayat belum bisa dimuat', e.message)); }
-  }
-  q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 250); });
-  main.append(
-    h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'Riwayat customer'), summary), h('div', { class: 'toolbar toolbar__grow' }, q)),
-    box);
-  load();
 }
 
 // ======================= PENGATURAN LAYANAN (SUPERVISOR) =======================
