@@ -41,6 +41,15 @@ const SECURITY = {
   'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
 };
 
+// decodeURIComponent yang melempar 400 (bukan URIError/500) kalau encoding URL rusak.
+function safeDecode(str) {
+  try {
+    return decodeURIComponent(str);
+  } catch {
+    throw new HttpError(400, 'URL tidak valid');
+  }
+}
+
 function sendJson(res, status, data) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(data));
@@ -64,14 +73,23 @@ function readBody(req, limit = 3 * 1024 * 1024) {
   });
 }
 
+function notFound(res) {
+  res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+  return res.end('Tidak ditemukan');
+}
+
 function serveFile(res, base, rel, extraHeaders = {}) {
-  const file = path.normalize(path.join(base, rel));
-  if (!file.startsWith(base + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
-    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-    return res.end('Tidak ditemukan');
+  // Tolak null byte, lalu pastikan path akhir tetap di dalam folder dasar (anti path traversal).
+  if (rel.includes('\0')) return notFound(res);
+  const baseDir = path.resolve(base);
+  const file = path.resolve(baseDir, rel);
+  if (!file.startsWith(baseDir + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+    return notFound(res);
   }
   res.writeHead(200, { 'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream', ...extraHeaders });
-  fs.createReadStream(file).pipe(res);
+  const stream = fs.createReadStream(file);
+  stream.on('error', () => res.destroy());
+  stream.pipe(res);
 }
 
 async function handleApi(req, res, url) {
@@ -81,7 +99,7 @@ async function handleApi(req, res, url) {
     throw new HttpError(404, 'Endpoint tidak ditemukan');
   }
   const m = route.rx.exec(url.pathname);
-  const params = Object.fromEntries(route.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])]));
+  const params = Object.fromEntries(route.keys.map((k, i) => [k, safeDecode(m[i + 1])]));
 
   let user = null;
   if (route.access === 'bot') {
@@ -113,9 +131,9 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname.startsWith('/api/')) return await handleApi(req, res, url);
     if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'Metode tidak diizinkan');
     if (url.pathname.startsWith('/uploads/')) {
-      return serveFile(res, uploadDir, decodeURIComponent(url.pathname.slice(9)), { 'Cache-Control': 'public, max-age=86400' });
+      return serveFile(res, uploadDir, safeDecode(url.pathname.slice(9)), { 'Cache-Control': 'public, max-age=86400' });
     }
-    const rel = url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname.slice(1));
+    const rel = url.pathname === '/' ? 'index.html' : safeDecode(url.pathname.slice(1));
     return serveFile(res, publicDir, rel, { 'Cache-Control': rel === 'index.html' ? 'no-cache' : 'public, max-age=300' });
   } catch (err) {
     if (err instanceof HttpError) return sendJson(res, err.status, { error: err.message });
