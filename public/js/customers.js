@@ -93,6 +93,17 @@ export function customersView(main, user, ctx = NO_CTX) {
     filename: `data-customer.${format}`,
   });
 
+  // Tinggi tabel dibatasi sesuai sisa layar: header (sticky) dan scrollbar horizontal
+  // tabel selalu terlihat tanpa harus menggulir halaman ke atas/bawah.
+  function fitTable() {
+    const wrap = box.querySelector('.table-wrap--customers');
+    if (!wrap) return;
+    const top = wrap.getBoundingClientRect().top + window.scrollY;
+    const room = window.innerHeight - top - 84; // 84px = ruang tombol halaman di bawah tabel
+    wrap.style.maxHeight = `${Math.max(320, Math.round(room))}px`;
+  }
+  window.addEventListener('resize', debounce(fitTable, 100), { signal: ctx.signal });
+
   async function load() {
     const req = gate.begin();
     const qs = new URLSearchParams({ q: q.value.trim(), page: String(page) });
@@ -121,11 +132,12 @@ export function customersView(main, user, ctx = NO_CTX) {
             h('td', { class: 'cell-note' }, dash(c.medical_note)),
             h('td', null, h('div', { class: 'cust-act' },
               h('button', { class: 'link nowrap', type: 'button', onclick: () => openVisits(c, ctx) }, c.visits ? `${fmtNum(c.visits)}× terapi` : 'Belum ada'),
-              h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => openCustomerForm(c, load) }, 'Ubah'))))))), 'Tabel data customer')
+              h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => openCustomerForm(c, load) }, 'Ubah'))))))), 'Tabel data customer', 'table-wrap--customers')
         : h('div', { class: 'table-wrap' }, emptyState(
           searching ? 'Customer tidak ditemukan' : 'Data customer masih kosong',
           searching ? 'Coba kata kunci lain.' : 'Klik “Upload data” untuk mengunggah file, atau “Tambah customer” untuk memasukkan satu per satu.')));
       pager.replaceChildren(...pagerNodes({ page, pages, onPage: (p) => { page = p; load(); } }));
+      fitTable();
     } catch (e) {
       if (!req.ok() || isAbort(e)) return;
       summary.textContent = '';
