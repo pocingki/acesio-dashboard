@@ -1,0 +1,68 @@
+{
+  "_catatan": "Edit file ini untuk menyesuaikan pencocokan kata kunci (kata utuh, tidak peka huruf besar/kecil; kata tunggal >= 5 huruf menerima imbuhan). leadRule: 'all' (bawaan) = pesan customer pertama yang tercatat dari nomor/lid mana pun menjadi lead; 'platform' = hanya jika pesan memuat kata kunci platform atau metadata sumber; 'keyword' = platform atau trigger. hotStrong = sinyal pasti (sudah transfer, lunas, ...): membuat Hot HANYA bila muncul dalam kalimat pernyataan (bukan pertanyaan: tanpa '?', tidak diawali kata di questionStarters, tidak diawali/diakhiri penanda tanya, tidak ada kata di questionInline) dan tidak dinegasi (belum, tidak, batal, ...). hotWeak = kata ambigu (bayar, book, cash, ...): TIDAK membuat Hot, hanya mencatat lastWeakAt; gambar/dokumen/video <= hotCandidateMinutes menit sesudahnya menjadi hotCandidate (kandidat, bukan Hot otomatis). transactionSignals = jenis sinyal untuk siklus transaksi (dp, pelunasan, bayar, booking). Satu siklus terbuka selama belum doneAt, jarak sinyal <= transactionCycleDays hari, dan belum lewat transactionGapHours jam sejak pelunasan; Existing bila >= 2 siklus. warmScore: Cold menjadi Warm bila skor >= threshold (perThreeMessages poin per 3 pesan customer maks maxMessageScore; askedPrice/askedSchedule/askedLocation sekali per jenis dari warmIntentWords; perAnsweredField per kolom data terjawab maks maxFieldScore). warmAfterMessages (lama) hanya dibaca bila warmScore dihapus. referralCodes memetakan kode referral ke platform. Prioritas sumber: referralCode > metadata iklan (ctwaClid/adId/sourceUrl) > sebutan di teks (yang pertama disebut) > defaultPlatform. hotKeywords (lama) hanya dibaca bila hotStrong tidak ada.",
+  "leadRule": "all",
+  "timezone": "Asia/Jakarta",
+  "transactionCycleDays": 30,
+  "transactionGapHours": 24,
+  "hotCandidateMinutes": 10,
+  "warmScore": {
+    "threshold": 5,
+    "perThreeMessages": 1,
+    "maxMessageScore": 4,
+    "askedPrice": 2,
+    "askedSchedule": 2,
+    "askedLocation": 1,
+    "perAnsweredField": 1,
+    "maxFieldScore": 2
+  },
+  "warmIntentWords": {
+    "price": ["harga", "biaya", "tarif", "berapa", "diskon", "promo"],
+    "schedule": ["jadwal", "jam buka", "jam praktek", "jam praktik", "jam berapa", "slot", "tersedia", "kosong"],
+    "location": ["lokasi", "alamat", "dimana", "di mana", "maps", "letak", "cabang"]
+  },
+  "referralCodes": {
+    "IG01": "Instagram",
+    "FB01": "Facebook",
+    "TT01": "TikTok"
+  },
+  "platforms": {
+    "Instagram": ["instagram", "insta", "ig"],
+    "Facebook": ["facebook", "fb"],
+    "TikTok": ["tiktok", "tik tok"],
+    "Google Ads": ["google ads", "iklan google"],
+    "Google (organik)": ["google", "gmaps", "google maps"],
+    "Website": ["website", "situs", "situs web"],
+    "Iklan Meta": []
+  },
+  "triggers": ["harga", "paket", "order", "pesan", "booking", "info", "tanya", "promo", "daftar", "minat"],
+  "questionStarters": [
+    "apa", "apakah", "bagaimana", "gimana", "gmn", "berapa", "dimana", "di mana", "kapan", "bisa", "boleh",
+    "ada", "kenapa", "mengapa", "siapa", "kalau", "jika"
+  ],
+  "questionInline": ["berapa"],
+  "hotStrong": [
+    "sudah transfer", "sudah tf", "sudah trf", "baru transfer", "baru tf", "transfer sekarang", "saya transfer",
+    "bukti transfer", "bukti bayar", "bukti pembayaran", "sudah bayar", "baru bayar", "sudah dp", "sudah bayar dp",
+    "lunas", "pelunasan", "kirim bukti", "konfirmasi pembayaran",
+    "jadi ambil", "oke deal", "ambil paket", "checkout", "order sekarang", "pesan sekarang", "sudah daftar", "daftar sekarang"
+  ],
+  "hotWeak": [
+    "konfirmasi", "bayar", "pembayaran", "book", "booked", "booking", "boking", "cash", "tunai", "fix", "tf", "trf", "va",
+    "dp", "uang muka", "down payment", "cod", "deal", "setuju", "rekening", "no rekening", "norek", "virtual account",
+    "invoice", "tagihan", "cicilan", "transfer", "struk", "kwitansi", "qris", "gopay", "ovo", "shopeepay",
+    "reservasi", "jadwalkan", "mau daftar"
+  ],
+  "transactionSignals": {
+    "dp": ["dp", "sudah dp", "down payment", "uang muka"],
+    "pelunasan": ["lunas", "pelunasan"],
+    "bayar": [
+      "sudah bayar", "baru bayar", "sudah transfer", "sudah tf", "sudah trf", "baru transfer", "baru tf", "transfer sekarang", "saya transfer",
+      "bukti transfer", "bukti bayar", "bukti pembayaran", "kirim bukti", "konfirmasi pembayaran"
+    ],
+    "booking": [
+      "booking", "boking", "booked", "reservasi", "jadwalkan", "mau daftar", "sudah daftar", "daftar sekarang",
+      "jadi ambil", "ambil paket", "oke deal", "checkout", "order sekarang", "pesan sekarang"
+    ]
+  },
+  "defaultPlatform": "Lainnya"
+}

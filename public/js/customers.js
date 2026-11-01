@@ -194,7 +194,20 @@ function openCustomerForm(c, onSaved) {
   const occupation = text('cf-job', c?.occupation, { maxlength: '100' });
   const domicile = text('cf-dom', c?.domicile, { maxlength: '150' });
   const month = text('cf-month', c?.month, { maxlength: '40' });
-  const reference = text('cf-ref', c?.reference, { maxlength: '150' });
+  const reference = text('cf-ref', c?.reference, { maxlength: '150', list: 'cf-ref-list', placeholder: 'fb, ig, tiktok, IG01, atau nama lain' });
+  const refList = h('datalist', { id: 'cf-ref-list' });
+  api('/api/staff/platforms').then(({ platforms }) => refList.replaceChildren(...platforms.map((n) => h('option', { value: n })))).catch(() => {});
+  // Singkatan platform dilengkapi saat kolom ditinggalkan, supaya terlihat sebelum disimpan.
+  let refSeq = 0;
+  reference.addEventListener('change', async () => {
+    const typed = reference.value;
+    const seq = ++refSeq;
+    if (!typed.trim()) return;
+    try {
+      const { value, matched } = await api(`/api/staff/platforms/resolve?q=${encodeURIComponent(typed)}`);
+      if (seq === refSeq && matched && reference.value === typed) reference.value = value;
+    } catch { /* server tetap melengkapi saat disimpan */ }
+  });
   const medical = h('textarea', { class: 'input textarea', id: 'cf-medical', rows: '4', maxlength: '2000', placeholder: 'Keluhan, diagnosa, alergi, riwayat penyakit, atau catatan lain yang perlu diketahui terapis' });
   medical.value = c?.medical_note || '';
   const origin = h('select', { class: 'input select', id: 'cf-origin' },
@@ -215,11 +228,12 @@ function openCustomerForm(c, onSaved) {
       field('Pekerjaan', occupation),
       field('Domisili', domicile),
       field('Bulan', month, 'Contoh: Oktober 2026.'),
-      field('Referensi', reference),
+      field('Referensi', reference, 'Ketik singkatan platform (fb, ig, tt, atau kode seperti IG01): otomatis menjadi nama lengkap, mis. Facebook. Isian lain, mis. nama teman, disimpan apa adanya.'),
       h('div', { class: 'form-grid__full' }, field('Catatan Medis', medical, 'Hanya terlihat oleh admin dan supervisor. Maksimal 2.000 huruf.')),
       field('Asal data', origin, 'Dipakai untuk grafik “Data awal” vs “Customer baru”.')),
     err,
     h('div', { class: 'modal__actions' }, h('button', { class: 'btn btn--ghost', type: 'button', onclick: () => modal.close() }, 'Batal'), save));
+  form.append(refList);
   const modal = openModal({ title: creating ? 'Tambah customer' : `Ubah ${c.name}`, content: form, wide: true });
 
   const flag = (el, on) => { if (on) el.setAttribute('aria-invalid', 'true'); else el.removeAttribute('aria-invalid'); };

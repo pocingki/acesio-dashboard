@@ -10,6 +10,7 @@
     "dev": "node --no-warnings --watch server/index.js",
     "seed:demo": "node --no-warnings scripts/seed-demo.js",
     "backup": "node --no-warnings scripts/backup.js",
+    "normalize:references": "node --no-warnings scripts/normalize-references.js",
     "check": "node -e \"const fs=require('fs'),cp=require('child_process');const files=['server','scripts','public','test'].flatMap(d=>fs.existsSync(d)?fs.readdirSync(d,{recursive:true}).map(f=>d+'/'+f):[]).filter(f=>/\\.m?js$/.test(f)&&!f.includes('node_modules'));let bad=0;for(const f of files){const r=cp.spawnSync(process.execPath,['--check',f],{encoding:'utf8'});if(r.status!==0){bad++;console.error(r.stderr)}}console.log(files.length+' berkas diperiksa, '+bad+' gagal');process.exit(bad?1:0)\"",
     "test": "node --no-warnings --test \"test/**/*.test.mjs\""
   }

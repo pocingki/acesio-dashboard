@@ -33,6 +33,7 @@ Data contoh: `npm run seed:demo` membuat user demo dengan **password acak yang d
 | `COOKIE_SECURE` | `false` | `true` di produksi (HTTPS) |
 | `TRUST_PROXY` | `false` | `true` hanya bila di belakang reverse proxy tepercaya; lihat bagian Keamanan |
 | `BACKUP_DIR` | `./backups` | Hanya dibaca `scripts/backup.js` |
+| `KEYWORDS_FILE` | `./config/keywords.json` | Berkas kata kunci bersama bot WA; dashboard hanya membaca `platforms`, `referralCodes`, `defaultPlatform` |
 
 ## Jenis akun
 
@@ -60,6 +61,7 @@ Data contoh: `npm run seed:demo` membuat user demo dengan **password acak yang d
 
 **Data customer (admin dan supervisor)** adalah sumber data awal. Menu **Customer** menampilkan *No | No RM | Reimburse | Nama | Jenis Kelamin | Tgl Lahir | No WA | Pekerjaan | Domisili | Bulan | Referensi | Catatan Medis* (50 baris per halaman, bisa dicari). *Catatan Medis* diisi admin/supervisor lewat form Tambah/Ubah customer atau kolom ke-12 pada file upload, ikut ditarik ke CSV/Excel, dan tidak pernah tampil di sisi user.
 - **Upload data**: CSV atau Excel (.xlsx) dengan baris judul yang sama (template tersedia di jendela upload). *No RM* dan *Nama* wajib. No RM yang sudah ada diperbarui (sel kosong tidak menghapus data lama), yang belum ada ditambahkan. Baris bermasalah dilaporkan setelah upload.
+- **Referensi otomatis jadi nama platform**: isi `fb` → *Facebook*, `ig` / `IG01` → *Instagram*, `tt` / `tiktok` → *TikTok*, `google ads` → *Google Ads*, dst. Berlaku di form Tambah/Ubah (terisi lengkap saat kolom ditinggalkan, ada daftar saran) dan di upload CSV/Excel. Aturan dan nama platform dibaca dari `config/keywords.json`, berkas yang sama dengan bot WA, jadi nama di dashboard dan bot selalu seragam. Hanya jika **seluruh isian** adalah satu platform (boleh diawali "dari"/"via"); isian lain seperti *Teman* atau *IG kak Rina* disimpan apa adanya. Kolom kosong tetap kosong. Merapikan data lama: `npm run normalize:references` (tampilkan rencana) lalu `-- --apply`.
 - **Tambah customer**: dipakai saat user melapor No RM tidak ditemukan.
 - **Ubah**, **Tarik data** (CSV/Excel), dan **Riwayat** per customer.
 - Ekspor CSV menetralkan sel yang bisa dibaca Excel sebagai formula (anti formula injection). Hasil ekspor yang diimpor kembali tidak boleh mengubah data: nama seperti `-Andi` harus tetap `-Andi` (diuji di regresi #8).

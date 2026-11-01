@@ -1,6 +1,7 @@
 import { db, tx } from './db.js';
 import { HttpError, normalizePhone, cleanName } from './util.js';
 import { readTable } from './importer.js';
+import { resolveReference } from './platforms.js';
 
 // Urutan kolom baku (impor, ekspor, dan tabel Customer): No | No RM | Reimburse | Nama | Jenis Kelamin | Tgl Lahir | No WA | Pekerjaan | Domisili | Bulan | Referensi | Catatan Medis
 export const CUSTOMER_HEADERS = ['No', 'No RM', 'Reimburse', 'Nama', 'Jenis Kelamin', 'Tgl Lahir', 'No WA', 'Pekerjaan', 'Domisili', 'Bulan', 'Referensi', 'Catatan Medis'];
@@ -94,7 +95,9 @@ export function cleanCustomer(raw) {
       occupation: squash(raw.occupation, 100),
       domicile: squash(raw.domicile, 150),
       month: squash(raw.month, 40),
-      reference: squash(raw.reference, 150),
+      // Singkatan platform (fb, ig, IG01, ...) dilengkapi jadi nama baku (Facebook, Instagram) di satu pintu ini,
+      // jadi form tambah/ubah dan upload CSV/Excel sama hasilnya.
+      reference: resolveReference(squash(raw.reference, 150)),
       medical_note: cleanNote(raw.medical_note),
     },
     warnings,

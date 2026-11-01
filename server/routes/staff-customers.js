@@ -6,6 +6,7 @@ import {
 } from '../customers.js';
 import { logAudit } from '../audit.js';
 import { clientIp } from '../auth.js';
+import { resolveReference, platformNames } from '../platforms.js';
 import { add, LIMITS } from './index.js';
 import { parseId, readFormat, cleanQ, phonePatterns } from './history.js';
 
@@ -133,7 +134,7 @@ add('POST', '/api/staff/customers', 'staff', ({ req, user, body }) => {
     detail: { rm_no: value.rm_no, origin },
     ip: clientIp(req),
   });
-  return { ok: true, id };
+  return { ok: true, id, reference: value.reference };
 });
 
 add('PATCH', '/api/staff/customers/:id', 'staff', ({ req, user, params, body }) => {
@@ -158,7 +159,16 @@ add('PATCH', '/api/staff/customers/:id', 'staff', ({ req, user, params, body }) 
     detail: { rm_no: value.rm_no, fields },
     ip: clientIp(req),
   });
-  return { ok: true };
+  return { ok: true, reference: value.reference };
+});
+
+// Daftar platform baku (dari keywords.json bersama bot WA) untuk saran di kolom Referensi.
+add('GET', '/api/staff/platforms', 'staff', () => ({ platforms: platformNames() }));
+// Pratinjau: "fb" -> { value: "Facebook", matched: true }. Penyimpanan tetap memakai cleanCustomer di server.
+add('GET', '/api/staff/platforms/resolve', 'staff', ({ query }) => {
+  const q = String(query.q ?? '').slice(0, 150);
+  const value = resolveReference(q.replace(/\s+/g, ' ').trim());
+  return { value, matched: value !== q.replace(/\s+/g, ' ').trim() };
 });
 
 add('GET', '/api/staff/customers/:id/visits', 'staff', ({ params }) => {
