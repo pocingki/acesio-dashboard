@@ -1,48 +1,92 @@
 import { api } from './api.js';
 import {
-  jakartaToday, h, icon, toast, fmtDate, fmtDay, fmtTime, fmtPhone, fmtNum, fmtRp, serviceCard, openModal, confirmDialog, emptyState,
+  todayInTz, closeAllModals, h, icon, toast, fmtDate, fmtDay, fmtTime, fmtPhone, fmtNum, fmtRp, serviceCard, openModal, confirmDialog, emptyState,
   statusPill, empPill, field, EMP_LABEL, ROLE_LABEL,
 } from './ui.js';
 import { createShell } from './shell.js';
 import { donutCard } from './charts.js';
-import { customersView } from './customers.js';
+import {
+  customersView, createGate, downloadButton, tableWrap, pagerNodes, rangeLabel, NO_CTX,
+} from './customers.js';
+import { auditView } from './audit.js';
+import { groupRecords, customerGroups } from './groups.js';
+
+const isAbort = (e) => e?.name === 'AbortError';
+const ATT_PAGE_SIZE = 50;
 
 export function renderStaffApp(root, user, { onLogout }) {
   const sv = user.role === 'supervisor';
   const tabs = [{ id: 'report', label: 'Laporan' }, { id: 'customers', label: 'Customer' }];
-  if (sv) tabs.push({ id: 'services', label: 'Pengaturan Layanan' }, { id: 'accounts', label: 'Akun User' });
+  if (sv) tabs.push({ id: 'services', label: 'Pengaturan Layanan' }, { id: 'accounts', label: 'Akun User' }, { id: 'audit', label: 'Log Audit' });
   const shell = createShell({
     user, onLogout, tabs,
-    onSelect: (id, main) => {
-      if (id === 'report') reportView(main, user);
-      else if (id === 'customers') customersView(main, user);
-      else if (id === 'services') settingsView(main);
-      else accountsView(main, user);
+    // ctx = { signal, isCurrent() } dari shell.select; NO_CTX hanya cadangan bila shell lama.
+    onSelect: (id, main, ctx) => {
+      const c = ctx || NO_CTX;
+      closeAllModals();
+      if (id === 'report') reportView(main, user, c);
+      else if (id === 'customers') customersView(main, user, c);
+      else if (id === 'services') settingsView(main, c);
+      else if (id === 'audit' && sv) auditView(main, c);
+      else if (id === 'accounts' && sv) accountsView(main, user, c);
     },
   });
   root.append(shell.el);
   shell.select('report');
 }
 
-const dl = (label, href) => h('a', { class: 'btn btn--ghost btn--sm', href, download: '' }, icon('download', 16), label);
+// ---------- periode (fungsi murni, diekspor untuk tes) ----------
+export function addDays(ymd, n) {
+  const [y, m, d] = String(ymd).split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+export const RANGE_ERROR = 'Tanggal awal tidak boleh setelah tanggal akhir';
+export const rangeError = (from, to) => (from && to && from > to ? RANGE_ERROR : '');
+
+// kind: 'today' | 'week' (7 hari terakhir termasuk hari ini) | 'month' (tanggal 1 sampai hari ini) | 'all'
+export function quickRange(kind, today) {
+  if (kind === 'today') return { from: today, to: today };
+  if (kind === 'week') return { from: addDays(today, -6), to: today };
+  if (kind === 'month') return { from: `${today.slice(0, 8)}01`, to: today };
+  return { from: '', to: '' };
+}
+const QUICK = [['today', 'Hari ini'], ['week', '7 hari'], ['month', 'Bulan ini'], ['all', 'Semua']];
+
+const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'user';
+const stampOf = (from, to) => (from || to ? `${from || 'awal'}_${to || 'akhir'}` : 'semua');
 
 // ======================= LAPORAN =======================
-function reportView(main, user) {
+function reportView(main, user, ctx) {
   const sv = user.role === 'supervisor';
+  const gate = createGate(ctx); // ringkasan, grafik, data user
+  const attGate = createGate(ctx); // Laporan Kinerja (berhalaman)
   // Default: hanya hari ini. Kosongkan tanggal untuk melihat keseluruhan.
-  const todayStr = jakartaToday();
+  const todayStr = todayInTz();
   const from = h('input', { class: 'input', type: 'date', value: todayStr });
   const to = h('input', { class: 'input', type: 'date', value: todayStr });
+  const rangeMsg = h('p', { class: 'error range-msg', role: 'alert' });
   const stats = h('div', { class: 'stats' });
   const chartsBox = h('div', { class: 'charts' });
-  const attBox = h('div');
+  const attChips = h('div');
+  const attInfo = h('p', { class: 'muted', role: 'status' });
+  const attTable = h('div');
+  const attPager = h('nav', { class: 'pager', 'aria-label': 'Halaman laporan kinerja' });
   const usersBox = h('div');
-  const csv = dl('CSV', '#');
-  const xlsx = dl('Excel', '#');
   let usageData = [];
+  let attPage = 1;
 
   const period = () => { const p = new URLSearchParams(); if (from.value) p.set('from', from.value); if (to.value) p.set('to', to.value); return p; };
   const qs = (extra = {}) => { const p = period(); for (const [k, v] of Object.entries(extra)) p.set(k, v); return p.toString(); };
+  const checkRange = () => rangeError(from.value, to.value);
+
+  // Unduhan: tolak periode terbalik, hitung URL saat diklik.
+  const exportTarget = (format, extra = {}, base = 'laporan') => {
+    const msg = checkRange();
+    if (msg) { toast(msg, 'err'); return null; }
+    return { url: `/api/staff/export?${qs({ ...extra, format })}`, filename: `${base}-${stampOf(from.value, to.value)}.${format}` };
+  };
+
   const stat = (label, value, { hero, sub, onClick } = {}) => {
     const body = [h('div', { class: 'stat__label' }, label), h('div', { class: 'stat__value' }, value), sub ? h('div', { class: 'stat__sub' }, sub) : null];
     return onClick
@@ -71,14 +115,35 @@ function reportView(main, user) {
     });
   }
 
-  async function load() {
-    csv.href = `/api/staff/export?${qs({ format: 'csv' })}`;
-    xlsx.href = `/api/staff/export?${qs({ format: 'xlsx' })}`;
+  // ---------- periode cepat ----------
+  const quickBtns = QUICK.map(([kind, label]) => h('button', {
+    class: 'btn btn--ghost btn--sm btn--toggle', type: 'button', 'aria-pressed': 'false',
+    onclick: () => {
+      const r = quickRange(kind, todayInTz());
+      from.value = r.from; to.value = r.to;
+      onRangeChange();
+    },
+  }, label));
+  function syncQuick() {
+    const now = todayInTz();
+    QUICK.forEach(([kind], i) => {
+      const r = quickRange(kind, now);
+      quickBtns[i].setAttribute('aria-pressed', String(r.from === from.value && r.to === to.value));
+    });
+  }
+
+  // ---------- ringkasan, grafik, data user ----------
+  async function loadAll() {
+    const req = gate.begin();
+    loadAttendance();
     try {
-      const [{ summary, attendance }, { users }, { rows, today }, { usage }, { charts }] = await Promise.all([
-        api(`/api/staff/summary?${qs()}`), api(`/api/staff/users?${qs()}`), api(`/api/staff/attendance?${qs()}`), api(`/api/staff/usage?${qs()}`),
-        api(`/api/staff/charts?${qs()}`),
+      const [{ summary, attendance }, { users }, { usage }, { charts }] = await Promise.all([
+        api(`/api/staff/summary?${qs()}`, { signal: req.signal }),
+        api(`/api/staff/users?${qs()}`, { signal: req.signal }),
+        api(`/api/staff/usage?${qs()}`, { signal: req.signal }),
+        api(`/api/staff/charts?${qs()}`, { signal: req.signal }),
       ]);
+      if (!req.ok()) return; // permintaan basi: jangan menimpa hasil terbaru
       usageData = usage;
       stats.replaceChildren(
         ...[
@@ -94,31 +159,14 @@ function reportView(main, user) {
         donutCard({ title: 'New customer', subtitle: 'Data awal vs customer baru · seluruh data', unit: 'customer', data: charts.customers }),
         donutCard({ title: 'Jenis kelamin', subtitle: 'Seluruh data customer', unit: 'customer', data: charts.gender }));
 
-      attBox.replaceChildren(
-        h('div', { class: 'summary-chips' },
-          h('span', { class: 'pill pill--late' }, `${fmtNum(attendance.late)} terlambat`),
-          h('span', { class: 'pill pill--ok' }, `${fmtNum(attendance.on_time)} tepat waktu`),
-          h('span', { class: 'pill pill--wait' }, `${fmtNum(attendance.pending)} menunggu approve `),
-          h('span', { class: 'pill pill--off' }, `${fmtNum(attendance.expired)} tidak di-approve (tidak dihitung)`)),
-        rows.length
-          ? h('div', { class: 'table-wrap table-wrap--scroll' }, h('table', null,
-            h('thead', null, h('tr', null, h('th', null, 'Tanggal'), h('th', null, 'User'), h('th', { class: 'num' }, 'Customer'), h('th', { class: 'num' }, 'Pelayanan'), h('th', null, 'Status'))),
-            h('tbody', null, rows.map((r) => {
-              const tr = h('tr', { class: 'is-link', tabindex: '0', role: 'button', 'aria-label': `Buka data ${r.user_name} tanggal ${r.day}` },
-                h('td', { class: 'nowrap' }, fmtDay(r.day)),
-                h('td', null, h('b', null, r.user_name)),
-                h('td', { class: 'num' }, fmtNum(r.customers)),
-                h('td', { class: 'num' }, fmtNum(r.services)),
-                h('td', null, statusPill(r.late, r.day < today), r.reviewed_by ? h('small', null, `oleh ${r.reviewed_by}`) : null));
-              const open = () => openUserDetail({ id: r.user_id, name: r.user_name }, user, { day: r.day, period, onChanged: load });
-              tr.addEventListener('click', open);
-              tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
-              return tr;
-            }))))
-          : h('div', { class: 'table-wrap' }, emptyState('Belum ada data', 'Belum ada input user pada tanggal yang dipilih.')));
+      attChips.replaceChildren(h('div', { class: 'summary-chips' },
+        h('span', { class: 'pill pill--late' }, `${fmtNum(attendance.late)} terlambat`),
+        h('span', { class: 'pill pill--ok' }, `${fmtNum(attendance.on_time)} tepat waktu`),
+        h('span', { class: 'pill pill--wait' }, `${fmtNum(attendance.pending)} menunggu approve`),
+        h('span', { class: 'pill pill--off' }, `${fmtNum(attendance.expired)} tidak di-approve (tidak dihitung)`)));
 
       usersBox.replaceChildren(users.length
-        ? h('div', { class: 'table-wrap' }, h('table', null,
+        ? tableWrap(h('table', null,
           h('thead', null, h('tr', null,
             h('th', null, 'Nama user'), h('th', { class: 'num' }, 'Total customer'), h('th', { class: 'num' }, 'Total pelayanan'),
             sv ? h('th', { class: 'num' }, 'Total komisi') : null, h('th', { class: 'num' }, 'Terlambat (hari)'))),
@@ -129,56 +177,145 @@ function reportView(main, user) {
               h('td', { class: 'num' }, fmtNum(u.total_services)),
               sv ? h('td', { class: 'num' }, fmtRp(u.total_commission)) : null,
               h('td', { class: 'num' }, fmtNum(u.late_days)));
-            const open = () => openUserDetail(u, user, { period, onChanged: load });
+            const open = () => openUserDetail(u, user, { period, checkRange, onChanged: loadAll, ctx });
             tr.addEventListener('click', open);
             tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
             return tr;
-          }))))
+          }))), 'Tabel data user')
         : h('div', { class: 'table-wrap' }, emptyState('Belum ada user', 'Buat akun user di tab Akun User.')));
-
     } catch (e) {
+      if (!req.ok() || isAbort(e)) return;
       stats.replaceChildren();
       chartsBox.replaceChildren();
+      attChips.replaceChildren();
       usersBox.replaceChildren(emptyState('Laporan belum bisa dimuat', e.message));
     }
   }
-  from.addEventListener('change', load);
-  to.addEventListener('change', load);
+
+  // ---------- Laporan Kinerja (berhalaman, kontrak F) ----------
+  async function loadAttendance() {
+    const req = attGate.begin();
+    try {
+      const { rows, total, page_size: size, today } = await api(`/api/staff/attendance?${qs({ page: attPage, page_size: ATT_PAGE_SIZE })}`, { signal: req.signal });
+      if (!req.ok()) return;
+      const pageSize = size || ATT_PAGE_SIZE;
+      const pages = Math.max(1, Math.ceil(total / pageSize));
+      if (attPage > pages) { attPage = pages; return loadAttendance(); }
+      attInfo.textContent = rangeLabel({ offset: (attPage - 1) * pageSize, shown: rows.length, total, noun: 'baris' });
+      attTable.replaceChildren(rows.length
+        ? tableWrap(h('table', null,
+          h('thead', null, h('tr', null, h('th', null, 'Tanggal'), h('th', null, 'User'), h('th', { class: 'num' }, 'Customer'), h('th', { class: 'num' }, 'Pelayanan'), h('th', null, 'Status'))),
+          h('tbody', null, rows.map((r) => {
+            const tr = h('tr', { class: 'is-link', tabindex: '0', role: 'button', 'aria-label': `Buka data ${r.user_name} tanggal ${r.day}` },
+              h('td', { class: 'nowrap' }, fmtDay(r.day)),
+              h('td', null, h('b', null, r.user_name)),
+              h('td', { class: 'num' }, fmtNum(r.customers)),
+              h('td', { class: 'num' }, fmtNum(r.services)),
+              h('td', null, statusPill(r.late, r.day < today), r.reviewed_by ? h('small', null, `oleh ${r.reviewed_by}`) : null));
+            const open = () => openUserDetail({ id: r.user_id, name: r.user_name }, user, { day: r.day, period, checkRange, onChanged: loadAll, ctx });
+            tr.addEventListener('click', open);
+            tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+            return tr;
+          }))), 'Tabel laporan kinerja', 'table-wrap--scroll')
+        : h('div', { class: 'table-wrap' }, emptyState('Belum ada data', 'Belum ada input user pada tanggal yang dipilih.')));
+      attPager.replaceChildren(...pagerNodes({ page: attPage, pages, onPage: (p) => { attPage = p; loadAttendance(); } }));
+    } catch (e) {
+      if (!req.ok() || isAbort(e)) return;
+      attInfo.textContent = '';
+      attTable.replaceChildren(emptyState('Laporan kinerja belum bisa dimuat', e.message));
+      attPager.replaceChildren();
+    }
+  }
+
+  function onRangeChange() {
+    const msg = checkRange();
+    rangeMsg.textContent = msg;
+    for (const el of [from, to]) { if (msg) el.setAttribute('aria-invalid', 'true'); else el.removeAttribute('aria-invalid'); }
+    syncQuick();
+    if (msg) return; // jangan memuat periode terbalik; tampilan lama tetap
+    attPage = 1;
+    loadAll();
+  }
+  from.addEventListener('change', onRangeChange);
+  to.addEventListener('change', onRangeChange);
 
   main.append(
     h('div', { class: 'page-head' },
       h('div', null, h('h1', null, 'Laporan'), h('p', { class: 'muted' }, 'Rekap input semua user. Default menampilkan hari ini; ubah atau kosongkan tanggal untuk periode lain.')),
       h('div', { class: 'toolbar' },
         field('Dari tanggal', from), field('Sampai tanggal', to),
-        h('div', { class: 'field' }, h('span', { class: 'label' }, 'Tarik data'), h('div', { class: 'toolbar' }, csv, xlsx)))),
+        h('div', { class: 'field' }, h('span', { class: 'label' }, 'Tarik data'),
+          h('div', { class: 'toolbar' }, downloadButton('CSV', () => exportTarget('csv')), downloadButton('Excel', () => exportTarget('xlsx')))))),
+    h('div', { class: 'quick', role: 'group', 'aria-label': 'Periode cepat' }, h('span', { class: 'label' }, 'Periode cepat'), quickBtns),
+    rangeMsg,
     stats,
     h('div', { class: 'section-head' }, h('h2', null, 'Grafik customer')),
     chartsBox,
     h('div', { class: 'section-head' }, h('h2', null, 'Laporan Kinerja')),
-    attBox,
+    attChips, attInfo, attTable, attPager,
     h('div', { class: 'section-head' }, h('h2', null, 'Data user')),
     usersBox);
-  load();
+  syncQuick();
+  loadAll();
 }
 
 // ======================= DETAIL USER + APPROVE =======================
-function openUserDetail(u, me, { day: startDay, period, onChanged }) {
+// Status satu tanggal untuk pemilih tanggal. late: 1 terlambat, 0 tepat waktu, null belum di-approve.
+export function dayState(late, day, today) {
+  if (late != null) return late ? { dot: 'dot--late', text: 'Terlambat' } : { dot: 'dot--ok', text: 'Tepat waktu' };
+  return day < today ? { dot: 'dot--off', text: 'Tidak di-approve' } : { dot: '', text: 'Menunggu approve' };
+}
+
+function openUserDetail(u, me, { day: startDay, period, checkRange, onChanged, ctx = NO_CTX }) {
   const sv = me.role === 'supervisor';
+  const gate = createGate(ctx);
   const body = h('div', null, h('p', { class: 'muted' }, 'Memuat…'));
-  openModal({ title: u.name, content: body, size: 'detail' });
+  openModal({ title: u.name, content: body, size: 'detail', onClose: () => gate.cancel() });
 
   async function load(day) {
+    const req = gate.begin(); // klik tanggal beruntun: hanya yang terakhir yang tampil
+    body.setAttribute('aria-busy', 'true');
     try {
-      const q = day ? `?day=${day}` : '';
-      const d = await api(`/api/staff/users/${u.id}/detail${q}`);
+      const d = await api(`/api/staff/users/${u.id}/detail${day ? `?day=${encodeURIComponent(day)}` : ''}`, { signal: req.signal });
+      if (!req.ok()) return;
       render(d);
     } catch (e) {
+      if (!req.ok() || isAbort(e)) return;
       body.replaceChildren(emptyState('Detail belum bisa dimuat', e.message));
+    } finally {
+      if (req.ok()) body.removeAttribute('aria-busy');
     }
   }
 
+  // ---------- pemilih tanggal (90 hari terakhir yang punya data) ----------
+  function dayPicker(d) {
+    const list = (d.days || []).slice();
+    if (d.day && !list.some((x) => x.day === d.day)) {
+      list.unshift({ day: d.day, services: d.records.length, customers: new Set(d.records.map((r) => r.customer_id)).size, late: d.review ? (d.review.late ? 1 : 0) : null });
+    }
+    if (!list.length) return null;
+    let active = null;
+    const btns = list.map((x) => {
+      const st = dayState(x.late, x.day, d.today);
+      const on = x.day === d.day;
+      const b = h('button', {
+        class: `day${on ? ' is-active' : ''}`, type: 'button', 'aria-pressed': String(on),
+        'aria-label': `${fmtDay(x.day)}: ${st.text}, ${fmtNum(x.services)} pelayanan`,
+        onclick: () => { if (!on) load(x.day); },
+      },
+      h('b', null, fmtDay(x.day, true)),
+      h('small', null, h('span', { class: `dot ${st.dot}`, 'aria-hidden': 'true' }), st.text),
+      h('small', null, `${fmtNum(x.services)} pelayanan`));
+      if (on) active = b;
+      return b;
+    });
+    return { el: h('div', { class: 'detail__days' },
+      h('h4', { class: 'detail__label' }, `Pilih tanggal · ${fmtNum(list.length)} hari terakhir yang ada data`),
+      h('div', { class: 'days', role: 'group', 'aria-label': 'Pilih tanggal' }, btns)), active };
+  }
+
   // ---------- kartu persetujuan ----------
-  // Approve hanya bisa pada hari yang sama (d.today). Hari lewat: kartu hanya baca.
+  // Approve baru hanya pada hari yang sama (d.today). Hari lewat: kartu hanya baca.
   function approveBox(d) {
     if (!d.day) return null;
     const dayLabel = fmtDay(d.day);
@@ -254,50 +391,56 @@ function openUserDetail(u, me, { day: startDay, period, onChanged }) {
           }, 'Batalkan approve'))));
   }
 
+  function exportTarget(format) {
+    const msg = checkRange();
+    if (msg) { toast(msg, 'err'); return null; }
+    const p = period();
+    p.set('user_id', u.id);
+    p.set('format', format);
+    return { url: `/api/staff/export?${p}`, filename: `data-${slug(u.name)}-${stampOf(p.get('from'), p.get('to'))}.${format}` };
+  }
+
+  const openGroups = new Set(); // grup terbuka bertahan saat memuat ulang / ganti tanggal
   function render(d) {
-    const exp = (fmt) => { const p = period(); p.set('user_id', u.id); p.set('format', fmt); return `/api/staff/export?${p}`; };
     const customers = new Set(d.records.map((r) => r.customer_id)).size;
-    const commission = sv ? d.records.reduce((a, r) => a + r.commission, 0) : 0;
+    const commission = sv ? d.records.reduce((a, r) => a + (Number(r.commission) || 0), 0) : 0;
     const pills = [
       empPill(d.user.employment),
       h('span', { class: 'pill' }, `${fmtNum(customers)} customer`),
       h('span', { class: 'pill' }, `${fmtNum(d.records.length)} pelayanan`),
       sv ? h('span', { class: 'pill' }, `${fmtRp(commission)} komisi`) : null,
     ];
-    const heads = ['No RM', 'Nama customer', 'No WA', 'Pelayanan', 'Rekam Medis', ...(sv ? ['Komisi'] : []), 'Jam', ...(sv ? [''] : [])];
+    // Satu baris per customer; klik untuk rincian layanan (catatan tampil di rincian bila ada).
     const table = d.records.length
-      ? h('div', { class: 'table-wrap table-wrap--detail' }, h('table', { class: 'tbl-detail' },
-        h('thead', null, h('tr', null, heads.map((t) => h('th', { class: t === 'Komisi' ? 'num' : null }, t)))),
-        h('tbody', null, d.records.map((r) => h('tr', null,
-          h('td', { class: 'nowrap' }, r.customer_rm || h('span', { class: 'muted' }, '–')),
-          h('td', null, h('b', null, r.customer_name)),
-          h('td', { class: 'nowrap' }, fmtPhone(r.customer_phone)),
-          h('td', null, r.service_name, r.source === 'bot' ? h('small', null, 'via WA bot') : null),
-          h('td', null, r.note ? h('div', { class: 'note' }, r.note) : h('span', { class: 'muted' }, '–')),
-          sv ? h('td', { class: 'num nowrap' }, fmtRp(r.commission)) : null,
-          h('td', { class: 'nowrap' }, fmtTime(r.created_at)),
-          sv ? h('td', { class: 'td-act' }, h('button', {
-            class: 'icon-btn icon-btn--danger', type: 'button', title: 'Hapus', 'aria-label': `Hapus ${r.service_name} untuk ${r.customer_name}`,
-            onclick: async () => {
-              if (!(await confirmDialog(`Hapus “${r.service_name}” untuk ${r.customer_name}? Total komisi ikut berkurang.`, { confirmText: 'Hapus', danger: true }))) return;
-              try { await api(`/api/records/${r.id}`, { method: 'DELETE' }); toast('Data dihapus'); await load(d.day); onChanged(); } catch (e) { toast(e.message, 'err'); }
-            },
-          }, icon('trash'))) : null)))))
-      : emptyState('Belum ada data', 'User ini belum menginput pelayanan.');
+      ? customerGroups(groupRecords(d.records), {
+        open: openGroups, showCommission: sv, label: 'Data pelayanan per customer',
+        renderService: sv ? (r) => h('button', {
+          class: 'icon-btn icon-btn--danger', type: 'button', title: 'Hapus', 'aria-label': `Hapus ${r.service_name} untuk ${r.customer_name}`,
+          onclick: async () => {
+            if (!(await confirmDialog(`Hapus “${r.service_name}” untuk ${r.customer_name}? Total komisi ikut berkurang. Penghapusan oleh supervisor dicatat di Log Audit.`, { confirmText: 'Hapus', danger: true }))) return;
+            try { await api(`/api/records/${r.id}`, { method: 'DELETE' }); toast('Data dihapus'); await load(d.day); onChanged(); } catch (e) { toast(e.message, 'err'); }
+          },
+        }, icon('trash')) : null,
+      })
+      : emptyState('Belum ada data', d.day ? 'Tidak ada pelayanan pada tanggal ini.' : 'User ini belum menginput pelayanan.');
 
-    // Urutan tampilan: ringkasan → tarik data → persetujuan → data pelayanan
+    const picker = dayPicker(d);
+    // Urutan tampilan: ringkasan → tarik data → pilih tanggal → persetujuan → data pelayanan
     body.replaceChildren(h('div', { class: 'detail' },
       h('div', { class: 'summary-chips summary-chips--tight' }, pills),
-      h('div', { class: 'detail__export' }, h('span', { class: 'label' }, 'Tarik data'), dl('CSV', exp('csv')), dl('Excel', exp('xlsx'))),
+      h('div', { class: 'detail__export' }, h('span', { class: 'label' }, 'Tarik data (periode laporan)'),
+        downloadButton('CSV', () => exportTarget('csv')), downloadButton('Excel', () => exportTarget('xlsx'))),
+      picker ? picker.el : null,
       approveBox(d),
-      d.day ? h('h4', { class: 'detail__label' }, `Data pelayanan · ${fmtDay(d.day)}`) : null,
+      d.day ? h('h4', { class: 'detail__label' }, `Data pelayanan · ${fmtDay(d.day)} · klik customer untuk rincian`) : null,
       table));
+    if (picker?.active?.scrollIntoView) picker.active.scrollIntoView({ block: 'nearest', inline: 'center' });
   }
   load(startDay);
 }
 
 // ======================= PENGATURAN LAYANAN (SUPERVISOR) =======================
-function settingsView(main) {
+function settingsView(main, ctx) {
   const content = h('div');
   const tabs = [['boxes', 'Kotak layanan'], ['comm', 'Perbedaan komisi']];
   const btns = new Map();
@@ -307,22 +450,30 @@ function settingsView(main) {
     return b;
   }));
   function show(id) {
-    for (const [k, b] of btns) { if (k === id) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); }
+    for (const [k, b] of btns) {
+      if (k === id) { b.setAttribute('aria-current', 'page'); b.setAttribute('aria-selected', 'true'); } else { b.removeAttribute('aria-current'); b.setAttribute('aria-selected', 'false'); }
+    }
     content.replaceChildren();
-    (id === 'boxes' ? boxesView : commissionView)(content);
+    (id === 'boxes' ? boxesView : commissionView)(content, ctx);
   }
   main.append(h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'Pengaturan layanan'))), bar, content);
   show('boxes');
 }
 
-async function boxesView(box) {
+async function boxesView(box, ctx) {
+  const gate = createGate(ctx);
   const grid = h('div', { class: 'svc-grid' });
   box.append(h('p', { class: 'muted mb' }, 'Ketuk kotak untuk mengubah nama dan foto. Komisi diatur di tab Perbedaan komisi.'), grid);
   async function load() {
+    const req = gate.begin();
     try {
-      const { services } = await api('/api/services');
+      const { services } = await api('/api/services', { signal: req.signal });
+      if (!req.ok()) return;
       grid.replaceChildren(...services.map((s) => serviceCard(s, { editIcon: true, onClick: () => openServiceEditor(s, load) })));
-    } catch (e) { grid.replaceChildren(emptyState('Layanan belum bisa dimuat', e.message)); }
+    } catch (e) {
+      if (!req.ok() || isAbort(e)) return;
+      grid.replaceChildren(emptyState('Layanan belum bisa dimuat', e.message));
+    }
   }
   load();
 }
@@ -389,33 +540,46 @@ function openServiceEditor(s, onSaved) {
   });
 }
 
-async function commissionView(box) {
+async function commissionView(box, ctx) {
+  const gate = createGate(ctx);
   const wrap = h('div');
   box.append(
     h('p', { class: 'muted mb' }, 'Komisi diatur per user dan per layanan, tidak ada komisi umum. Layanan yang belum diisi dihitung Rp0.'),
     wrap);
   async function load() {
+    const req = gate.begin();
     try {
-      const { users, total_services: total } = await api('/api/sv/commissions');
+      const { users, total_services: total } = await api('/api/sv/commissions', { signal: req.signal });
+      if (!req.ok()) return;
       wrap.replaceChildren(users.length
-        ? h('div', { class: 'table-wrap' }, h('table', null,
-          h('thead', null, h('tr', null, h('th', null, 'Nama user'), h('th', null, 'Status kerja'), h('th', { class: 'num' }, 'Komisi terisi'), h('th', null, ''))),
+        ? tableWrap(h('table', null,
+          h('thead', null, h('tr', null, h('th', null, 'Nama user'), h('th', null, 'Status kerja'), h('th', { class: 'num' }, 'Komisi terisi'), h('th', null, h('span', { class: 'sr-only' }, 'Aksi')))),
           h('tbody', null, users.map((u) => h('tr', null,
             h('td', null, h('b', null, u.name), ' ', u.active ? null : h('span', { class: 'pill pill--off' }, 'Nonaktif'), h('small', null, `@${u.username}`)),
             h('td', null, empPill(u.employment)),
             h('td', { class: 'num' }, u.filled === 0 ? h('span', { class: 'pill pill--wait' }, 'Belum diisi') : `${u.filled} dari ${total} layanan`),
-            h('td', null, h('div', { class: 'row-actions' }, h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => openCommissionEditor(u, users, load) }, 'Atur komisi'))))))))
+            h('td', null, h('div', { class: 'row-actions' }, h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => openCommissionEditor(u, users, load, ctx) }, 'Atur komisi'))))))), 'Tabel komisi per user')
         : h('div', { class: 'table-wrap' }, emptyState('Belum ada user', 'Buat akun user di tab Akun User dulu.')));
-    } catch (e) { wrap.replaceChildren(emptyState('Data komisi belum bisa dimuat', e.message)); }
+    } catch (e) {
+      if (!req.ok() || isAbort(e)) return;
+      wrap.replaceChildren(emptyState('Data komisi belum bisa dimuat', e.message));
+    }
   }
   load();
 }
 
-async function openCommissionEditor(u, allUsers, onSaved) {
+async function openCommissionEditor(u, allUsers, onSaved, ctx = NO_CTX) {
   const content = h('div', null, h('p', { class: 'muted' }, 'Memuat…'));
   const modal = openModal({ title: u.name, content, wide: true }); // nama user di paling atas
   let items;
-  try { ({ items } = await api(`/api/sv/commissions/${u.id}`)); } catch (e) { content.replaceChildren(emptyState('Komisi belum bisa dimuat', e.message)); return; }
+  try {
+    ({ items } = await api(`/api/sv/commissions/${u.id}`, { signal: ctx.signal }));
+  } catch (e) {
+    if (isAbort(e) || !ctx.isCurrent()) return;
+    content.replaceChildren(emptyState('Komisi belum bisa dimuat', e.message));
+    return;
+  }
+  if (!ctx.isCurrent()) { modal.close(); return; }
   const inputs = new Map();
   const grid = h('div', { class: 'comm-grid' }, items.map((it) => {
     const input = h('input', { class: 'input', type: 'number', min: '0', step: '500', inputmode: 'numeric', value: String(it.amount), id: `cm${it.service_id}`, 'aria-label': `Komisi ${it.name}` });
@@ -463,7 +627,8 @@ async function openCommissionEditor(u, allUsers, onSaved) {
 }
 
 // ======================= AKUN (SUPERVISOR) =======================
-function accountsView(main, me) {
+function accountsView(main, me, ctx) {
+  const gate = createGate(ctx);
   const box = h('div');
   main.append(
     h('div', { class: 'page-head' },
@@ -471,18 +636,23 @@ function accountsView(main, me) {
       h('button', { class: 'btn btn--primary', type: 'button', onclick: () => openAccountEditor(null, load, me) }, icon('plus', 18), 'Tambah akun')),
     box);
   async function load() {
+    const req = gate.begin();
     try {
-      const { accounts } = await api('/api/sv/accounts');
-      box.replaceChildren(h('div', { class: 'table-wrap' }, h('table', null,
-        h('thead', null, h('tr', null, ['Nama', 'Username', 'Jenis akun', 'Status kerja', 'Status', ''].map((t) => h('th', null, t)))),
+      const { accounts } = await api('/api/sv/accounts', { signal: req.signal });
+      if (!req.ok()) return;
+      box.replaceChildren(tableWrap(h('table', null,
+        h('thead', null, h('tr', null, ['Nama', 'Username', 'Jenis akun', 'Status kerja', 'Status', ''].map((t) => h('th', null, t || h('span', { class: 'sr-only' }, 'Aksi'))))),
         h('tbody', null, accounts.map((a) => h('tr', null,
           h('td', null, h('b', null, a.name)),
           h('td', null, a.username),
           h('td', null, ROLE_LABEL[a.role]),
           h('td', null, a.role === 'user' ? empPill(a.employment) : h('span', { class: 'muted' }, '–')),
           h('td', null, h('span', { class: `pill${a.active ? '' : ' pill--off'}` }, a.active ? 'Aktif' : 'Nonaktif')),
-          h('td', null, h('div', { class: 'row-actions' }, h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => openAccountEditor(a, load, me) }, 'Ubah')))))))));
-    } catch (e) { box.replaceChildren(emptyState('Akun belum bisa dimuat', e.message)); }
+          h('td', null, h('div', { class: 'row-actions' }, h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => openAccountEditor(a, load, me) }, 'Ubah'))))))), 'Tabel akun user'));
+    } catch (e) {
+      if (!req.ok() || isAbort(e)) return;
+      box.replaceChildren(emptyState('Akun belum bisa dimuat', e.message));
+    }
   }
   load();
 }

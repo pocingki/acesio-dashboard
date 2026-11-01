@@ -1,5 +1,12 @@
 import { api } from './api.js';
-import { h, icon, openModal, toast, ROLE_LABEL } from './ui.js';
+import { h, icon, openModal, toast, emptyState, ROLE_LABEL } from './ui.js';
+
+// Shell yang sedang tampil; app.js membatalkannya saat sesi habis atau keluar.
+let activeShell = null;
+export function disposeActiveShell() {
+  if (activeShell) activeShell.dispose();
+  activeShell = null;
+}
 
 export function brand() {
   return h('div', { class: 'brand' },
@@ -21,6 +28,7 @@ export function openAccountModal(user) {
   const modal = openModal({ title: 'Akun saya', content: form });
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (save.disabled) return;
     err.textContent = '';
     save.disabled = true;
     try {
@@ -28,7 +36,7 @@ export function openAccountModal(user) {
       modal.close();
       toast('Password diganti');
     } catch (ex) {
-      err.textContent = ex.message;
+      if (!ex.aborted) err.textContent = ex.message;
     } finally {
       save.disabled = false;
     }
@@ -36,7 +44,11 @@ export function openAccountModal(user) {
 }
 
 // Kerangka halaman: topbar + tab + area konten.
+// onSelect(id, main, ctx): ctx = { signal, isCurrent() } baru untuk SETIAP pergantian tab;
+// ctx tab sebelumnya otomatis dibatalkan. Tampilan async wajib memakai ctx.signal untuk fetch
+// dan mengecek ctx.isCurrent() sebelum menyentuh DOM.
 export function createShell({ user, tabs, onSelect, onLogout }) {
+  disposeActiveShell();
   const tabButtons = new Map();
   const nav = h('nav', { class: 'tabs', 'aria-label': 'Menu utama' });
   for (const t of tabs) {
@@ -46,24 +58,51 @@ export function createShell({ user, tabs, onSelect, onLogout }) {
   }
   const main = h('main', { class: 'page', id: 'main' });
   const header = h('header', { class: 'topbar' },
-      h('div', { class: 'topbar__inner' },
-        brand(),
-        nav,
-        h('div', { class: 'topbar__user' },
-          h('button', { class: 'userbtn', type: 'button', title: `${ROLE_LABEL[user.role]} · ganti password`, onclick: () => openAccountModal(user) }, user.name),
-          h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Keluar', title: 'Keluar', onclick: onLogout }, icon('logout', 20)))));
+    h('div', { class: 'topbar__inner' },
+      brand(),
+      nav,
+      h('div', { class: 'topbar__user' },
+        h('button', { class: 'userbtn', type: 'button', title: `${ROLE_LABEL[user.role]} · ganti password`, onclick: () => openAccountModal(user) }, user.name),
+        h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Keluar', title: 'Keluar', onclick: onLogout }, icon('logout', 20)))));
   const el = h('div', null, header, main);
   const setH = () => document.documentElement.style.setProperty('--topbar-h', `${header.offsetHeight}px`);
-  new ResizeObserver(setH).observe(header);
+  const resizeObserver = new ResizeObserver(setH);
+  resizeObserver.observe(header);
   setH();
+
+  let controller = null;
+  const abortCurrent = () => { if (controller) controller.abort(); };
+
   function select(id) {
+    abortCurrent(); // membatalkan fetch dan pembaruan DOM tab sebelumnya
+    const mine = new AbortController();
+    controller = mine;
+    const ctx = { signal: mine.signal, isCurrent: () => controller === mine && !mine.signal.aborted };
     for (const [k, b] of tabButtons) {
       if (k === id) b.setAttribute('aria-current', 'page');
       else b.removeAttribute('aria-current');
     }
     main.className = 'page';
     main.replaceChildren();
-    onSelect(id, main);
+    const failed = (e) => {
+      if (!ctx.isCurrent() || e?.aborted || e?.name === 'AbortError') return;
+      main.replaceChildren(emptyState('Halaman belum bisa dimuat', e?.message || 'Terjadi kesalahan'));
+    };
+    try {
+      const r = onSelect(id, main, ctx);
+      if (r && typeof r.then === 'function') r.catch(failed);
+    } catch (e) {
+      failed(e);
+    }
+    return ctx;
   }
-  return { el, main, select };
+
+  function dispose() {
+    abortCurrent();
+    resizeObserver.disconnect();
+  }
+
+  const shell = { el, main, select, dispose };
+  activeShell = shell;
+  return shell;
 }

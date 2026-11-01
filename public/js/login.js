@@ -1,9 +1,8 @@
 import { api } from './api.js';
-import { h } from './ui.js';
-import { brand } from './shell.js';
+import { h, closeAllModals, setTz } from './ui.js';
 
 export function renderLogin(root, onSuccess, notice = '') {
-  document.querySelectorAll('.overlay').forEach((o) => o.remove());
+  closeAllModals();
   const username = h('input', { class: 'input', id: 'u', name: 'username', autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', required: true });
   const password = h('input', { class: 'input', id: 'p', name: 'password', type: 'password', autocomplete: 'current-password', required: true });
   const error = h('p', { class: 'error', role: 'alert' }, notice);
@@ -17,12 +16,14 @@ export function renderLogin(root, onSuccess, notice = '') {
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (submit.disabled) return;
     error.textContent = '';
     submit.disabled = true;
     submit.textContent = 'Memeriksa…';
     try {
-      const { user } = await api('/api/auth/login', { method: 'POST', body: { username: username.value.trim(), password: password.value } });
-      onSuccess(user);
+      const res = await api('/api/auth/login', { method: 'POST', body: { username: username.value.trim(), password: password.value } });
+      setTz(res.tz ?? res.user?.tz); // zona waktu aplikasi dari server
+      onSuccess(res.user);
     } catch (ex) {
       error.textContent = ex.message;
       password.value = '';

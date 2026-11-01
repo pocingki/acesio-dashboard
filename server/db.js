@@ -26,6 +26,7 @@ const customersDdl = (target) => `CREATE TABLE ${target} (
   domicile TEXT NOT NULL DEFAULT '',
   month TEXT NOT NULL DEFAULT '',
   reference TEXT NOT NULL DEFAULT '',
+  medical_note TEXT NOT NULL DEFAULT '',
   origin TEXT NOT NULL DEFAULT 'awal' CHECK (origin IN ('awal','baru')),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT ''
@@ -91,6 +92,35 @@ CREATE INDEX IF NOT EXISTS idx_records_customer ON records(customer_id);
 CREATE INDEX IF NOT EXISTS idx_records_service ON records(service_id);
 `;
 
+// Versi 4: jejak audit dan kunci idempotensi.
+const AUDIT_SCHEMA = `
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL,
+  actor_id INTEGER,
+  actor_name TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL,
+  target_type TEXT NOT NULL DEFAULT '',
+  target_id TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '{}',
+  ip TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+  user_id INTEGER NOT NULL,
+  key TEXT NOT NULL,
+  status INTEGER NOT NULL,
+  body TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, key)
+);
+`;
+const AUDIT_INDEXES = `
+CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_idem_created ON idempotency_keys(created_at);
+`;
+export const SCHEMA_VERSION = 4;
+
 const hasUsers = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'").get();
 const version = db.prepare('PRAGMA user_version').get().user_version;
 
@@ -142,6 +172,7 @@ if (!hasRm) {
              SELECT id, name, phone, 'baru', created_at FROM customers`);
     db.exec('DROP TABLE customers');
     db.exec('ALTER TABLE customers_new RENAME TO customers');
+    db.exec('PRAGMA user_version = 3');
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');
@@ -149,8 +180,31 @@ if (!hasRm) {
   }
   db.exec('PRAGMA foreign_keys = ON');
 }
-db.exec('PRAGMA user_version = 3');
 db.exec(INDEXES);
+
+// Migrasi kolom Catatan Medis (diisi admin/supervisor). Aman dijalankan berulang: hanya menambah kolom bila belum ada,
+// semua customer lama mendapat catatan kosong.
+if (!db.prepare("SELECT 1 FROM pragma_table_info('customers') WHERE name = 'medical_note'").get()) {
+  db.exec("ALTER TABLE customers ADD COLUMN medical_note TEXT NOT NULL DEFAULT ''");
+}
+
+// Migrasi ke versi 4. Nomor versi hanya dinaikkan, tidak pernah diturunkan, dan hanya setelah
+// tabel berhasil dibuat di dalam transaksi yang sama (DB dari versi lebih baru tidak disentuh).
+if (db.prepare('PRAGMA user_version').get().user_version < SCHEMA_VERSION) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.exec(AUDIT_SCHEMA);
+    db.exec(AUDIT_INDEXES);
+    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+} else {
+  db.exec(AUDIT_SCHEMA);
+  db.exec(AUDIT_INDEXES);
+}
 
 // 29 kotak layanan tetap; supervisor mengubah nama dan fotonya.
 export const SERVICE_COUNT = 29;
@@ -159,14 +213,27 @@ if (db.prepare('SELECT COUNT(*) AS n FROM services').get().n < SERVICE_COUNT) {
   for (let i = 1; i <= SERVICE_COUNT; i++) ins.run(i, `Layanan ${i}`);
 }
 
+// Transaksi. Boleh bersarang: pemanggilan di dalam transaksi yang sedang berjalan ikut transaksi luar
+// (error di dalam membatalkan semuanya). fn harus sinkron; fungsi async ditolak karena COMMIT akan
+// terjadi sebelum fn selesai.
+let txDepth = 0;
 export function tx(fn) {
+  if (txDepth > 0) return fn();
   db.exec('BEGIN IMMEDIATE');
+  txDepth++;
   try {
     const result = fn();
+    if (result && typeof result.then === 'function') throw new Error('tx() tidak mendukung fungsi async');
     db.exec('COMMIT');
     return result;
   } catch (err) {
-    db.exec('ROLLBACK');
+    try { db.exec('ROLLBACK'); } catch { /* sudah tidak ada transaksi */ }
     throw err;
+  } finally {
+    txDepth--;
   }
+}
+
+export function closeDb() {
+  try { db.close(); } catch { /* sudah tertutup */ }
 }

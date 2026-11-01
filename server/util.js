@@ -3,10 +3,14 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { uploadDir } from './db.js';
 
+// Error yang aman ditampilkan ke klien. `code` (opsional) dikirim sebagai {"error","code"};
+// `headers` (opsional) ikut dikirim di respons, mis. {'Retry-After': '30'} untuk 429.
 export class HttpError extends Error {
-  constructor(status, message) {
+  constructor(status, message, code, headers) {
     super(message);
     this.status = status;
+    if (code) this.code = code;
+    if (headers) this.headers = headers;
   }
 }
 

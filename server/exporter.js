@@ -3,13 +3,15 @@ import zlib from 'node:zlib';
 // ---------- CSV (BOM agar Excel membaca UTF-8) ----------
 function csvCell(v) {
   let s = v == null ? '' : String(v);
-  if (/^[=+\-@\t\r]/.test(s) && typeof v === 'string') s = "'" + s; // cegah formula injection
+  // Cegah formula injection. Apostrof di depan karakter berbahaya juga digandakan, supaya impor
+  // (yang membuang SATU apostrof pelindung) mengembalikan nilai persis seperti semula.
+  if (typeof v === 'string' && /^'*[=+\-@\t\r]/.test(s)) s = "'" + s;
   return /[",\n\r;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 export function toCsv(headers, rows) {
   const lines = [headers.map(csvCell).join(',')];
   for (const r of rows) lines.push(r.map(csvCell).join(','));
-  return '﻿' + lines.join('\r\n') + '\r\n';
+  return '\ufeff' + lines.join('\r\n') + '\r\n';
 }
 
 // ---------- XLSX minimal (tanpa library) ----------
@@ -22,11 +24,11 @@ function colName(i) {
   return s;
 }
 
-function sheetXml(headers, rows, rpCols, intCols, hasDrawing, widths) {
+function sheetXml(headers, rows, rpCols, intCols, hasDrawing, widths, wrapCols = new Set()) {
   const cell = (v, r, c, header) => {
     const ref = `${colName(c)}${r}`;
     if (!header && typeof v === 'number' && (rpCols.has(c) || intCols.has(c))) return `<c r="${ref}" s="${rpCols.has(c) ? 2 : 3}"><v>${v}</v></c>`;
-    const style = header ? ' s="1"' : '';
+    const style = header ? ' s="1"' : (wrapCols.has(c) ? ' s="4"' : '');
     return `<c r="${ref}" t="inlineStr"${style}><is><t xml:space="preserve">${esc(v ?? '')}</t></is></c>`;
   };
   let xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
@@ -74,9 +76,10 @@ const STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
   '<fill><patternFill patternType="solid"><fgColor rgb="FF0F3BA8"/></patternFill></fill></fills>' +
   '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
   '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-  '<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+  '<cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
   '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>' +
-  '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="1" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>' +
+  '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="1" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
+  '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf></cellXfs>' +
   '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
 
 function crc32(buf) {
@@ -141,7 +144,7 @@ export function toXlsx(sheets) {
     const n = i + 1;
     const chartRows = sh.chart ? sh.rows.length : 0;
     const hasChart = !!sh.chart && chartRows > 0;
-    files.push([`xl/worksheets/sheet${n}.xml`, sheetXml(sh.headers, sh.rows, new Set(sh.rpCols || []), new Set(sh.intCols || []), hasChart, sh.widths)]);
+    files.push([`xl/worksheets/sheet${n}.xml`, sheetXml(sh.headers, sh.rows, new Set(sh.rpCols || []), new Set(sh.intCols || []), hasChart, sh.widths, new Set(sh.wrapCols || []))]);
     overrides.push(`<Override PartName="/xl/worksheets/sheet${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`);
     wbSheets.push(`<sheet name="${esc(sh.name.slice(0, 31))}" sheetId="${n}" r:id="rId${n}"/>`);
     wbRels.push(REL(`rId${n}`, 'worksheet', `worksheets/sheet${n}.xml`));

@@ -2,12 +2,17 @@ import { db, tx } from './db.js';
 import { HttpError, normalizePhone, cleanName } from './util.js';
 import { readTable } from './importer.js';
 
-// Urutan kolom baku (impor, ekspor, dan tabel Customer): No | No RM | Reimburse | Nama | Jenis Kelamin | Tgl Lahir | No WA | Pekerjaan | Domisili | Bulan | Referensi
-export const CUSTOMER_HEADERS = ['No', 'No RM', 'Reimburse', 'Nama', 'Jenis Kelamin', 'Tgl Lahir', 'No WA', 'Pekerjaan', 'Domisili', 'Bulan', 'Referensi'];
+// Urutan kolom baku (impor, ekspor, dan tabel Customer): No | No RM | Reimburse | Nama | Jenis Kelamin | Tgl Lahir | No WA | Pekerjaan | Domisili | Bulan | Referensi | Catatan Medis
+export const CUSTOMER_HEADERS = ['No', 'No RM', 'Reimburse', 'Nama', 'Jenis Kelamin', 'Tgl Lahir', 'No WA', 'Pekerjaan', 'Domisili', 'Bulan', 'Referensi', 'Catatan Medis'];
 export const GENDER_LABEL = { L: 'Laki-laki', P: 'Perempuan', '': '' };
 
 const nowIso = () => new Date().toISOString();
 const squash = (v, max) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
+// Catatan medis boleh beberapa baris: pindah baris dipertahankan, spasi berlebih dan karakter kontrol dibuang.
+export const MEDICAL_NOTE_MAX = 2000;
+// eslint-disable-next-line no-control-regex
+const cleanNote = (v) => String(v ?? '').replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+  .replace(/[ \t]+/g, ' ').replace(/ ?\n ?/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, MEDICAL_NOTE_MAX);
 
 // "2026-03-05" -> "05/03/2026" (tanpa zona waktu, hanya potong string)
 export const displayDate = (iso) => {
@@ -40,9 +45,12 @@ export function parseBirthDate(input) {
     return validYmd(y, +m[2], +m[1]);
   }
   if ((m = /^(\d{1,2})\s+([a-zA-Z]+)\.?\s+(\d{4})$/.exec(s)) && MONTHS[m[2].toLowerCase()]) return validYmd(+m[3], MONTHS[m[2].toLowerCase()], +m[1]);
-  if (/^\d{5}(\.\d+)?$/.test(s)) {
-    const serial = Math.floor(Number(s));
-    if (serial > 1 && serial < 80000) {
+  // Nomor seri tanggal Excel (4 atau 5 digit, boleh berdesimal). 4 digit antara 1900 dan 2100 lebih mungkin
+  // tahun saja ("1990") daripada serial, jadi ditolak agar tidak menjadi tanggal salah di tahun 1905.
+  if ((m = /^(\d{4,5})(?:\.\d+)?$/.exec(s))) {
+    const serial = Number(m[1]);
+    if (m[1].length === 4 && serial >= 1900 && serial <= 2100) return null;
+    if (serial >= 1 && serial < 80000) {
       const dt = new Date(Date.UTC(1899, 11, 30) + serial * 86400000);
       return validYmd(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
     }
@@ -87,12 +95,14 @@ export function cleanCustomer(raw) {
       domicile: squash(raw.domicile, 150),
       month: squash(raw.month, 40),
       reference: squash(raw.reference, 150),
+      medical_note: cleanNote(raw.medical_note),
     },
     warnings,
   };
 }
 
-const FIELDS = ['rm_no', 'reimburse', 'name', 'gender', 'birth_date', 'phone', 'occupation', 'domicile', 'month', 'reference'];
+export const CUSTOMER_FIELDS = ['rm_no', 'reimburse', 'name', 'gender', 'birth_date', 'phone', 'occupation', 'domicile', 'month', 'reference', 'medical_note'];
+const FIELDS = CUSTOMER_FIELDS;
 
 export function insertCustomer(v, origin) {
   const info = db.prepare(`INSERT INTO customers (${FIELDS.join(', ')}, origin, created_at, updated_at)
@@ -121,20 +131,36 @@ const HEADER_ALIASES = {
   domicile: ['domisili', 'alamat', 'kota'],
   month: ['bulan'],
   reference: ['referensi', 'reference', 'sumber'],
+  medical_note: ['catatanmedis', 'catatan', 'catmedis', 'medicalnote', 'medis'],
 };
 
-export function importCustomers(format, content) {
-  const table = readTable(format, content).filter((r) => r.some((c) => String(c ?? '').trim() !== ''));
-  if (!table.length) throw new HttpError(400, 'File kosong');
-
-  const headerRow = table[0].map(norm);
+// Cari baris judul (punya kolom No RM dan Nama) di 10 baris berisi pertama; baris di atasnya (judul laporan dsb.) diabaikan.
+const HEADER_SCAN_ROWS = 10;
+function mapHeader(row) {
+  const cells = row.map(norm);
   const col = {};
   for (const [field, aliases] of Object.entries(HEADER_ALIASES)) {
-    const i = headerRow.findIndex((h) => aliases.includes(h));
+    const i = cells.findIndex((h) => aliases.includes(h));
     if (i >= 0) col[field] = i;
   }
-  if (col.rm_no === undefined || col.name === undefined) {
-    throw new HttpError(400, 'Baris judul harus punya kolom “No RM” dan “Nama”. Unduh template untuk melihat format yang benar.');
+  return col.rm_no !== undefined && col.name !== undefined ? col : null;
+}
+
+export function importCustomers(format, content) {
+  // `line` = nomor baris asli di file, dipertahankan walau baris kosong dibuang.
+  const table = readTable(format, content)
+    .map((row, i) => ({ row, line: i + 1 }))
+    .filter(({ row }) => row.some((c) => String(c ?? '').trim() !== ''));
+  if (!table.length) throw new HttpError(400, 'File kosong');
+
+  let headerAt = -1;
+  let col = null;
+  for (let i = 0; i < Math.min(HEADER_SCAN_ROWS, table.length); i++) {
+    col = mapHeader(table[i].row);
+    if (col) { headerAt = i; break; }
+  }
+  if (!col) {
+    throw new HttpError(400, 'Baris judul harus punya kolom “No RM” dan “Nama” (dicari di 10 baris pertama). Unduh template untuk melihat format yang benar.');
   }
 
   const result = { added: 0, updated: 0, skipped: 0, issues: [] };
@@ -142,9 +168,8 @@ export function importCustomers(format, content) {
   const get = (row, f) => (col[f] === undefined ? '' : String(row[col[f]] ?? '').trim());
 
   tx(() => {
-    table.slice(1).forEach((row, i) => {
-      const line = i + 2; // nomor baris di file (judul = baris 1)
-      const raw = Object.fromEntries(['rm_no', 'reimburse', 'name', 'gender', 'birth_date', 'phone', 'occupation', 'domicile', 'month', 'reference'].map((f) => [f, get(row, f)]));
+    table.slice(headerAt + 1).forEach(({ row, line }) => {
+      const raw = Object.fromEntries(FIELDS.map((f) => [f, get(row, f)]));
       let cleaned;
       try { cleaned = cleanCustomer(raw); } catch (e) {
         result.skipped++;
@@ -180,5 +205,5 @@ export function importCustomers(format, content) {
 
 // Baris ekspor mengikuti urutan CUSTOMER_HEADERS; `no` = nomor urut tampil.
 export const customerExportRow = (c, no) => [
-  no, c.rm_no || '', c.reimburse, c.name, GENDER_LABEL[c.gender] || '', displayDate(c.birth_date), c.phone, c.occupation, c.domicile, c.month, c.reference,
+  no, c.rm_no || '', c.reimburse, c.name, GENDER_LABEL[c.gender] || '', displayDate(c.birth_date), c.phone, c.occupation, c.domicile, c.month, c.reference, c.medical_note || '',
 ];

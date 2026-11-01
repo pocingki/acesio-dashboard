@@ -1,3 +1,29 @@
+# Dependencies
 node_modules/
-data/
+
+# Environment and secrets
 .env
+.env.*
+!.env.example
+
+# Database and local data
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Backups
+backups/
+*.bak
+
+# Logs
+*.log
+logs/
+
+# Build and test output
+coverage/
+.nyc_output/
+
+# Operating system
+.DS_Store
+Thumbs.db
