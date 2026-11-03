@@ -13,6 +13,7 @@ const { sessionUser, hashPassword, isSecure } = await import('./auth.js');
 const { routes, loadRoutes, LIMITS } = await import('./routes/index.js');
 await loadRoutes();
 const { botKeyValid } = await import('./routes/bot.js');
+const { startWorker, stopWorker } = await import('./integration.js');
 const { HttpError } = await import('./util.js');
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -319,6 +320,7 @@ function shutdown(signal) {
     process.exit(1);
   }, 10_000);
   force.unref();
+  stopWorker();
   server.close(() => {
     closeDb();
     console.log('  Server ditutup.');
@@ -349,4 +351,5 @@ process.on('unhandledRejection', (reason) => console.error(`[${new Date().toISOS
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
+startWorker();
 console.log(`  Acesio Dashboard berjalan di http://localhost:${server.address().port}\n`);

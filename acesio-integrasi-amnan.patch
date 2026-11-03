@@ -1,0 +1,1381 @@
+diff --git a/README.md b/README.md
+index 5352882..5b6819c 100644
+--- a/README.md
++++ b/README.md
+@@ -115,6 +115,22 @@ curl -X POST -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
+ 
+ Idempotensi bot memakai `request_id` di body, atau header `Idempotency-Key` yang sama dengan endpoint web. Data bot ditandai "via WA bot" di laporan. Bot **tidak membuat customer baru**: No RM tidak ada = 404. Input ditolak (409) bila hari itu sudah di-approve.
+ 
++## Integrasi WhatsApp (Amnan)
++
++Khusus supervisor: tombol **Integrasi** di pojok kanan atas membuka panel samping dengan 3 langkah.
++
++1. **Sambungkan**: tempel *kode sambungan* dari admin Amnan (alamat Amnan terisi otomatis) lalu tekan Sambungkan.
++2. **Pilih yang dikirim**: *Catat kunjungan* (nama, No RM, kunjungan ke-berapa, layanan) dan, bila mau, *ucapan terima kasih* via WhatsApp (maksimal sekali sehari per pelanggan).
++3. **Nyalakan**: hanya kunjungan yang dicatat setelah dinyalakan yang dikirim.
++
++Catatan teknis:
++- Kiriman masuk antrean (`integration_outbox`) di transaksi yang sama dengan pencatatan layanan, lalu dikirim latar belakang. Amnan mati tidak menggagalkan pencatatan; kiriman diulang otomatis (30 dtk, 2 mnt, 10 mnt, 1 jam, 6 jam) dan yang gagal bisa dikirim ulang dari panel.
++- Catatan Medis, komisi, dan data terapis tidak pernah dikirim.
++- Kunci akses disimpan terenkripsi (AES-256-GCM); kunci enkripsinya ada di `DATA_DIR/integration.key`, **ikut dibackup terpisah dari `acesio.db`**. Bila hilang, cukup sambungkan ulang.
++- `http://` hanya diizinkan untuk server yang sama (127.0.0.1 / jaringan privat); selain itu wajib `https://`.
++- Kejadian dikirim sebagai `<app>.visit_recorded`; awalan `<app>` menyesuaikan otomatis dengan nama aplikasi pada kunci Amnan.
++- Arah sebaliknya (Amnan membaca data customer Acesio) memakai `BOT_API_KEY`, lihat bagian *Integrasi WA bot*.
++
+ ## Keamanan (ringkas)
+ 
+ Rincian ada di [SECURITY.md](SECURITY.md).
+diff --git a/public/css/app.css b/public/css/app.css
+index 53fd56f..a0603d2 100644
+--- a/public/css/app.css
++++ b/public/css/app.css
+@@ -478,4 +478,98 @@ td small { display: block; color: var(--muted); }
+   .cgroup__row > .cg-num { margin-left: auto; }
+   .svc-item { flex-wrap: wrap; }
+ }
+-@media (prefers-reduced-motion: reduce) { .cg-chev { transition: none; } }
+\ No newline at end of file
++@media (prefers-reduced-motion: reduce) { .cg-chev { transition: none; } }
++/* ---------- menu samping Integrasi (panel dari kanan) ---------- */
++.overlay:has(> .modal--drawer) { place-items: stretch end; justify-items: end; padding: 0; }
++.modal--drawer { width: min(500px, 100%); height: 100vh; height: 100dvh; max-height: none; border-radius: 22px 0 0 22px; animation: drawer-in .22s ease-out; }
++.modal--drawer .modal__body { flex: 1; min-height: 0; background: var(--bg); }
++@keyframes drawer-in { from { transform: translateX(36px); opacity: 0; } to { transform: none; opacity: 1; } }
++@media (max-width: 560px) { .modal--drawer { border-radius: 0; } }
++
++.intg-btn { display: inline-flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, .1); border: 0; color: #fff; padding: 8px 14px; border-radius: 999px; font-weight: 700; cursor: pointer; }
++.intg-btn:hover { background: rgba(255, 255, 255, .18); }
++.intg-dot { width: 10px; height: 10px; border-radius: 50%; background: #8e9ac2; box-shadow: 0 0 0 2px rgba(255, 255, 255, .35); }
++.intg-dot[data-status="on"] { background: #35d07f; }
++.intg-dot[data-status="paused"] { background: #f5b942; }
++.intg-dot[data-status="problem"] { background: #ff6b78; }
++
++.intg { display: grid; gap: 16px; }
++.intg[aria-busy="true"] { opacity: .7; pointer-events: none; }
++.intg-lead { color: var(--ink); font-size: 15px; }
++.intg-flow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items: center; gap: 6px; padding: 14px 12px; background: #fff; border: 1px solid var(--line); border-radius: 18px; }
++.intg-node { display: grid; gap: 2px; text-align: center; padding: 10px 6px; border-radius: 12px; background: var(--blue-50); }
++.intg-node b { font-family: var(--serif); font-size: 17px; color: var(--blue-900); }
++.intg-node span { font-size: 11.5px; color: var(--muted); line-height: 1.25; }
++.intg-arrow { display: grid; justify-items: center; gap: 0; color: var(--field-border); font-size: 10.5px; font-weight: 700; }
++.intg-arrow::before { content: ""; width: 34px; height: 2px; background: currentColor; border-radius: 2px; }
++.intg-arrow::after { content: ""; width: 7px; height: 7px; border-top: 2px solid currentColor; border-right: 2px solid currentColor; transform: rotate(45deg); margin: -5px 0 0 26px; }
++.intg-arrow span { order: 3; margin-top: 2px; }
++.intg-arrow.is-live { color: var(--ok); }
++@media (max-width: 440px) {
++  .intg-flow { grid-template-columns: 1fr; }
++  .intg-arrow { transform: rotate(90deg); height: 40px; }
++  .intg-arrow span { display: none; }
++}
++
++.intg-banner { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 16px; border: 1.5px solid var(--line); background: #fff; }
++.intg-banner p { font-size: 14px; color: var(--muted); margin-top: 2px; }
++.intg-banner .btn { margin-top: 10px; }
++.intg-banner__dot { flex: none; width: 12px; height: 12px; border-radius: 50%; margin-top: 6px; background: #8e9ac2; }
++.intg-banner--ok { border-color: #a9dfc2; background: #f1fbf5; }
++.intg-banner--ok .intg-banner__dot { background: var(--ok); }
++.intg-banner--wait { border-color: #f0d9a0; background: #fffaf0; }
++.intg-banner--wait .intg-banner__dot { background: #e0a21a; }
++.intg-banner--bad { border-color: #f2c5c9; background: #fff5f6; }
++.intg-banner--bad .intg-banner__dot { background: var(--danger); }
++
++.intg-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
++.intg-step { background: #fff; border: 1.5px solid var(--blue-200); border-radius: 18px; padding: 16px 16px 18px; }
++.intg-step.is-done { border-color: #a9dfc2; }
++.intg-step.is-locked { border-style: dashed; border-color: var(--line); opacity: .65; }
++.intg-step__head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
++.intg-step__head h3 { font-size: 18px; margin-right: auto; }
++.intg-step__num { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--blue-700); color: #fff; font-weight: 700; font-size: 14px; }
++.intg-step.is-done .intg-step__num { background: var(--ok-strong); }
++.intg-step.is-locked .intg-step__num { background: var(--field-border); }
++.intg-step .field:last-of-type { margin-bottom: 12px; }
++.intg-step .btn[type="submit"] { width: 100%; }
++
++.intg-kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0 0 10px; font-size: 14px; }
++.intg-kv dt { color: var(--muted); }
++.intg-kv dd { margin: 0; font-weight: 600; }
++.break { overflow-wrap: anywhere; }
++.intg-note { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
++.intg-note--ok { color: var(--ok-strong); }
++.intg-note--wait { color: #8a5a00; }
++.intg-note--bad { color: var(--danger); }
++.intg-actions { display: flex; gap: 8px; flex-wrap: wrap; }
++
++.intg-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 12px 0; }
++.intg-row + .intg-row { border-top: 1px solid var(--line); }
++.intg-row__text { display: grid; gap: 3px; }
++.intg-row.is-disabled { opacity: .55; }
++.intg-thanks { margin: 4px 0 0; }
++.intg-thanks .btn { justify-self: start; }
++.switch { flex: none; position: relative; width: 52px; height: 30px; border-radius: 999px; border: 0; padding: 0; cursor: pointer; background: var(--field-border); transition: background .15s; }
++.switch__knob { position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); transition: transform .15s; }
++.switch[aria-checked="true"] { background: var(--ok-strong); }
++.switch[aria-checked="true"] .switch__knob { transform: translateX(22px); }
++.switch:disabled { cursor: not-allowed; }
++
++.intg-activity { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 12px 16px; }
++.intg-activity > summary { cursor: pointer; font-weight: 700; }
++.intg-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 12px; }
++.intg-item { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
++.intg-item .pill { flex: none; margin-top: 2px; }
++.intg-err { font-size: 13px; color: var(--danger); }
++.intg-tech { margin-top: 12px; font-size: 13px; }
++.intg-tech > summary { cursor: pointer; color: var(--muted); }
++@media (prefers-reduced-motion: reduce) { .modal--drawer { animation: none; } .switch, .switch__knob { transition: none; } }
++.intg-progress { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; }
++.intg-progress li { flex: 1 1 0; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 6px; border-radius: 999px; background: #fff; border: 1.5px solid var(--line); color: var(--muted); font-size: 12.5px; font-weight: 700; text-align: center; line-height: 1.15; }
++.intg-progress__n { flex: none; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--field-border); color: #fff; font-size: 11px; }
++.intg-progress li.is-now { border-color: var(--blue-600); color: var(--blue-900); }
++.intg-progress li.is-now .intg-progress__n { background: var(--blue-700); }
++.intg-progress li.is-done { border-color: #a9dfc2; background: #f1fbf5; color: var(--ok-strong); }
++.intg-progress li.is-done .intg-progress__n { background: var(--ok-strong); }
++@media (max-width: 440px) { .intg-progress li { flex-direction: column; border-radius: 14px; gap: 3px; } }
+diff --git a/public/js/audit.js b/public/js/audit.js
+index 62d8e3e..535dca4 100644
+--- a/public/js/audit.js
++++ b/public/js/audit.js
+@@ -18,6 +18,10 @@ export const ACTION_LABEL = {
+   'customer.create': ['Tambah customer', 'ok'],
+   'customer.update': ['Ubah customer', ''],
+   'auth.password_change': ['Ganti password', 'wait'],
++  'integration.connect': ['Sambung WhatsApp', 'ok'],
++  'integration.update': ['Ubah integrasi', ''],
++  'integration.retry': ['Kirim ulang integrasi', ''],
++  'integration.disconnect': ['Putus WhatsApp', 'late'],
+ };
+ export const actionLabel = (a) => ACTION_LABEL[a]?.[0] || String(a || '–');
+ 
+diff --git a/public/js/integration.js b/public/js/integration.js
+new file mode 100644
+index 0000000..da4d580
+--- /dev/null
++++ b/public/js/integration.js
+@@ -0,0 +1,280 @@
++// Menu samping "Integrasi" (khusus supervisor): hubungkan Acesio ke WhatsApp lewat Amnan dalam 3 langkah.
++// Bahasa sengaja awam: tidak ada istilah teknis (API, webhook, token) di layar utama.
++import { api } from './api.js';
++import { h, icon, openModal, toast, confirmDialog, fmtDate } from './ui.js';
++
++// ---------- fungsi murni (diekspor untuk tes) ----------
++
++// "AMN1.<base64url JSON>" -> alamat Amnan di dalam kode, atau '' bila bukan kode sambungan.
++export function urlFromCode(raw) {
++  const s = String(raw || '').trim().replace(/\s+/g, '');
++  if (!/^AMN1\./i.test(s)) return '';
++  try {
++    const b64 = s.slice(5).replace(/-/g, '+').replace(/_/g, '/');
++    const bin = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
++    const u = JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)))).u;
++    return typeof u === 'string' ? u : '';
++  } catch {
++    return '';
++  }
++}
++
++export function ago(iso, now = Date.now()) {
++  const t = Date.parse(iso);
++  if (!iso || Number.isNaN(t)) return '';
++  const sec = Math.max(0, Math.round((now - t) / 1000));
++  if (sec < 60) return 'baru saja';
++  if (sec < 3600) return `${Math.floor(sec / 60)} menit lalu`;
++  if (sec < 86400) return `${Math.floor(sec / 3600)} jam lalu`;
++  return fmtDate(iso);
++}
++
++// Judul + penjelasan banner status menurut keadaan.
++export function statusInfo(s, now = Date.now()) {
++  const waiting = s.stats?.pending ? ` ${s.stats.pending} kiriman sedang menunggu.` : '';
++  if (s.status === 'none') return { tone: 'off', title: 'Belum tersambung', text: 'Ikuti 3 langkah di bawah. Cukup beberapa menit.' };
++  if (s.status === 'paused') return { tone: 'wait', title: 'Tersambung, belum dinyalakan', text: 'Lanjut ke langkah 3 untuk mulai mengirim.' };
++  if (s.status === 'problem') {
++    const failed = s.stats?.failed ? `${s.stats.failed} kiriman gagal. ` : '';
++    return { tone: 'bad', title: 'Perlu perhatian', text: `${s.last_error ? `${s.last_error}. ` : ''}${failed}${waiting}`.trim() };
++  }
++  const last = s.stats?.last_ok_at ? `Terakhir terkirim ${ago(s.stats.last_ok_at, now)}.` : 'Menunggu kunjungan pertama dicatat.';
++  return { tone: 'ok', title: 'Berjalan lancar', text: `${last}${waiting}` };
++}
++
++const WA_TEXT = {
++  connected: ['ok', 'WhatsApp di Amnan tersambung'],
++  qr: ['wait', 'WhatsApp di Amnan menunggu pindai QR'],
++  connecting: ['wait', 'WhatsApp di Amnan sedang menyambung'],
++  disconnected: ['bad', 'WhatsApp di Amnan belum tersambung. Buka Amnan dan pindai QR.'],
++};
++export const waText = (st) => WA_TEXT[st] || ['wait', 'Status WhatsApp belum diketahui'];
++
++const ITEM_LABEL = { sent: ['ok', 'Terkirim'], pending: ['wait', 'Menunggu'], failed: ['late', 'Gagal'], skipped: ['off', 'Dilewati'] };
++
++// ---------- tombol di topbar ----------
++
++const DOT_LABEL = { none: 'belum tersambung', paused: 'tersambung, belum dinyalakan', on: 'berjalan', problem: 'perlu perhatian' };
++
++export function integrationButton() {
++  const dot = h('span', { class: 'intg-dot', 'data-status': 'none', 'aria-hidden': 'true' });
++  const sr = h('span', { class: 'sr-only' }, '');
++  const btn = h('button', { class: 'intg-btn', type: 'button', onclick: () => openIntegrationDrawer(setDot) },
++    icon('link', 18), h('span', null, 'Integrasi'), dot, sr);
++  function setDot(s) {
++    const st = s?.status || 'none';
++    dot.dataset.status = st;
++    sr.textContent = ` (${DOT_LABEL[st] || ''})`;
++    btn.title = `Integrasi WhatsApp: ${DOT_LABEL[st] || ''}`;
++  }
++  api('/api/sv/integration').then(setDot).catch(() => { /* titik tetap abu-abu */ });
++  return btn;
++}
++
++// ---------- panel samping ----------
++
++function toggle({ id, label, desc, on, disabled, onChange }) {
++  const sw = h('button', { class: 'switch', type: 'button', role: 'switch', 'aria-checked': String(!!on), 'aria-labelledby': `${id}-l`, 'aria-describedby': desc ? `${id}-d` : null, disabled: disabled || null },
++    h('span', { class: 'switch__knob' }));
++  sw.addEventListener('click', () => onChange(!on, sw));
++  return h('div', { class: `intg-row${disabled ? ' is-disabled' : ''}` },
++    h('div', { class: 'intg-row__text' }, h('b', { id: `${id}-l` }, label), desc ? h('p', { id: `${id}-d`, class: 'hint' }, desc) : null),
++    sw);
++}
++
++function step({ n, title, done, locked, children }) {
++  const body = h('div', { class: 'intg-step__body' }, children);
++  if (locked) body.setAttribute('inert', '');
++  return h('li', { class: `intg-step${done ? ' is-done' : ''}${locked ? ' is-locked' : ''}` },
++    h('div', { class: 'intg-step__head' },
++      h('span', { class: 'intg-step__num', 'aria-hidden': 'true' }, done ? icon('check', 16) : String(n)),
++      h('h3', null, title),
++      done ? h('span', { class: 'pill pill--ok' }, 'Selesai') : null,
++      locked ? h('span', { class: 'pill pill--off' }, 'Selesaikan langkah sebelumnya') : null),
++    body);
++}
++
++export function openIntegrationDrawer(onState) {
++  const body = h('div', { class: 'intg' });
++  let current = null;
++  let busy = false;
++
++  const modal = openModal({ title: 'Hubungkan ke WhatsApp', content: body, size: 'drawer', onClose: () => { if (current && onState) onState(current); } });
++
++  async function run(fn, { ok } = {}) {
++    if (busy) return;
++    busy = true;
++    body.setAttribute('aria-busy', 'true');
++    try {
++      const s = await fn();
++      if (s) { current = s; if (onState) onState(s); render(s); }
++      if (ok) toast(typeof ok === 'function' ? ok(s) : ok);
++      return s;
++    } catch (e) {
++      if (!e.aborted) toast(e.message, 'err');
++      return null;
++    } finally {
++      busy = false;
++      body.removeAttribute('aria-busy');
++    }
++  }
++
++  const put = (patch) => api('/api/sv/integration', { method: 'PUT', body: patch });
++
++  function flow(s) {
++    const live = s.status === 'on';
++    const node = (name, sub) => h('div', { class: 'intg-node' }, h('b', null, name), h('span', null, sub));
++    const arrow = h('div', { class: `intg-arrow${live ? ' is-live' : ''}`, 'aria-hidden': 'true' }, h('span', null, 'otomatis'));
++    return h('div', { class: 'intg-flow', role: 'img', 'aria-label': 'Terapis mencatat layanan di Acesio, otomatis diteruskan ke Amnan, lalu tampil di chat WhatsApp pelanggan' },
++      node('Acesio', 'Terapis mencatat layanan'), arrow, node('Amnan', 'Pusat chat WhatsApp'), arrow.cloneNode(true), node('Pelanggan', 'Riwayat kunjungan tampil di chat'));
++  }
++
++  function banner(s) {
++    const info = statusInfo(s);
++    const retry = s.stats.failed > 0
++      ? h('button', { class: 'btn btn--sm btn--ghost', type: 'button', onclick: () => run(() => api('/api/sv/integration/retry', { method: 'POST' }), { ok: 'Mengirim ulang…' }) }, `Kirim ulang ${s.stats.failed} yang gagal`)
++      : null;
++    return h('div', { class: `intg-banner intg-banner--${info.tone}`, role: 'status' },
++      h('span', { class: 'intg-banner__dot', 'aria-hidden': 'true' }),
++      h('div', null, h('b', null, info.title), info.text ? h('p', null, info.text) : null, retry));
++  }
++
++  function connectForm() {
++    const code = h('textarea', { class: 'textarea', id: 'intg-code', rows: 2, spellcheck: 'false', autocomplete: 'off', placeholder: 'Tempel kode dari Amnan di sini' });
++    const url = h('input', { class: 'input', id: 'intg-url', type: 'url', autocomplete: 'off', placeholder: 'https://wa.klinikanda.id' });
++    const err = h('p', { class: 'error', role: 'alert' });
++    const go = h('button', { class: 'btn btn--primary', type: 'submit' }, 'Sambungkan');
++    code.addEventListener('input', () => {
++      const u = urlFromCode(code.value);
++      if (u && !url.dataset.touched) url.value = u;
++    });
++    url.addEventListener('input', () => { url.dataset.touched = '1'; });
++    const form = h('form', { novalidate: true },
++      h('div', { class: 'field' }, h('label', { for: 'intg-code' }, 'Kode sambungan'), code,
++        h('p', { class: 'hint' }, 'Minta ke admin Amnan (menu Integrasi). Kodenya diawali AMN1. atau amk_.')),
++      h('div', { class: 'field' }, h('label', { for: 'intg-url' }, 'Alamat Amnan'), url,
++        h('p', { class: 'hint' }, 'Terisi otomatis dari kode. Kalau Amnan ada di server yang sama dengan Acesio, isi http://127.0.0.1:8080')),
++      err, go);
++    form.addEventListener('submit', async (e) => {
++      e.preventDefault();
++      err.textContent = '';
++      if (!code.value.trim()) { err.textContent = 'Tempel kode sambungan dulu.'; code.focus(); return; }
++      go.disabled = true;
++      go.textContent = 'Menyambungkan…';
++      try {
++        const s = await api('/api/sv/integration/connect', { method: 'POST', body: { code: code.value, url: url.value } });
++        current = s;
++        if (onState) onState(s);
++        render(s);
++        toast('Tersambung ke Amnan');
++      } catch (ex) {
++        if (!ex.aborted) err.textContent = ex.message;
++        go.disabled = false;
++        go.textContent = 'Sambungkan';
++      }
++    });
++    return form;
++  }
++
++  function connectedView(s) {
++    const [wTone, wText] = waText(s.wa_status);
++    return h('div', null,
++      h('dl', { class: 'intg-kv' },
++        h('dt', null, 'Tersambung ke'), h('dd', null, s.brand || s.url),
++        h('dt', null, 'Alamat'), h('dd', { class: 'break' }, s.url),
++        h('dt', null, 'Kunci akses'), h('dd', { class: 'break' }, s.key_hint)),
++      h('p', { class: `intg-note intg-note--${wTone}` }, wText),
++      h('div', { class: 'intg-actions' },
++        h('button', { class: 'btn btn--sm btn--ghost', type: 'button', onclick: () => run(async () => {
++          const r = await api('/api/sv/integration/test', { method: 'POST' });
++          toast(r.test.ok ? 'Sambungan baik' : r.test.message, r.test.ok ? 'ok' : 'err');
++          return r;
++        }) }, 'Tes sambungan'),
++        h('button', { class: 'btn btn--sm btn--danger', type: 'button', onclick: async () => {
++          if (!(await confirmDialog('Putuskan sambungan ke Amnan? Kunjungan berikutnya tidak akan dikirim, dan kiriman yang masih menunggu dibatalkan.', { confirmText: 'Ya, putuskan', danger: true }))) return;
++          run(() => api('/api/sv/integration/disconnect', { method: 'POST' }), { ok: 'Sambungan diputus' });
++        } }, 'Putuskan')));
++  }
++
++  function chooseView(s) {
++    const text = h('textarea', { class: 'textarea', id: 'intg-thanks', rows: 3, maxlength: 500 }, s.thanks_text);
++    const save = h('button', { class: 'btn btn--sm btn--ghost', type: 'button', onclick: () => run(() => put({ thanks_text: text.value }), { ok: 'Ucapan disimpan' }) }, 'Simpan ucapan');
++    return h('div', null,
++      h('p', { class: 'hint' }, 'Pilihan bawaan sudah cocok untuk kebanyakan klinik. Boleh langsung lanjut ke langkah 3.'),
++      toggle({
++        id: 'intg-visit', label: 'Catat kunjungan di chat WhatsApp', on: s.send_visit,
++        desc: 'Setiap layanan yang dicatat terapis ikut tampil di profil pelanggan di Amnan: nama, No RM, kunjungan ke-berapa, dan layanannya. Catatan Medis dan komisi tidak pernah dikirim.',
++        onChange: (on) => run(() => put({ send_visit: on, ...(on ? {} : { send_thanks: false }) })),
++      }),
++      toggle({
++        id: 'intg-thanks-sw', label: 'Kirim ucapan terima kasih', on: s.send_thanks, disabled: !s.send_visit || !s.can_message,
++        desc: s.can_message
++          ? 'Pesan WhatsApp otomatis, paling banyak sekali sehari per pelanggan. Nyalakan hanya bila pelanggan setuju menerima pesan.'
++          : 'Kunci akses ini belum boleh mengirim pesan WhatsApp. Minta admin Amnan menambah izinnya, lalu tekan "Tes sambungan".',
++        onChange: (on) => run(() => put({ send_thanks: on })),
++      }),
++      s.send_thanks ? h('div', { class: 'field intg-thanks' }, h('label', { for: 'intg-thanks' }, 'Isi ucapan'), text,
++        h('p', { class: 'hint' }, 'Tulis {nama} untuk otomatis diganti nama pelanggan.'), save) : null);
++  }
++
++  function switchOnView(s) {
++    return h('div', null,
++      toggle({
++        id: 'intg-on', label: s.enabled ? 'Integrasi menyala' : 'Integrasi mati', on: s.enabled, disabled: !s.send_visit && !s.enabled,
++        desc: s.enabled
++          ? 'Kunjungan yang dicatat mulai sekarang langsung dikirim ke Amnan.'
++          : (s.send_visit ? 'Hanya kunjungan yang dicatat SETELAH dinyalakan yang dikirim. Data lama tidak ikut.' : 'Nyalakan "Catat kunjungan" di langkah 2 dulu.'),
++        onChange: (on) => run(() => put({ enabled: on }), { ok: on ? 'Integrasi dinyalakan' : 'Integrasi dimatikan' }),
++      }));
++  }
++
++  function activity(s) {
++    const items = s.recent.length
++      ? s.recent.map((r) => {
++        const [tone, label] = ITEM_LABEL[r.status] || ['off', r.status];
++        return h('li', { class: 'intg-item' },
++          h('span', { class: `pill pill--${tone}` }, label),
++          h('div', null,
++            h('b', null, r.customer || 'Customer'), r.thanks && r.status === 'sent' ? h('span', { class: 'muted' }, ' · plus ucapan') : null,
++            h('p', { class: 'hint' }, [r.services, ago(r.at)].filter(Boolean).join(' · ')),
++            r.error && r.status !== 'sent' ? h('p', { class: 'intg-err' }, r.error) : null));
++      })
++      : [h('li', { class: 'hint' }, 'Belum ada kiriman. Akan muncul di sini setelah terapis mencatat layanan.')];
++    return h('details', { class: 'intg-activity' },
++      h('summary', null, `Aktivitas terakhir${s.stats.sent_24h ? ` (${s.stats.sent_24h} terkirim 24 jam terakhir)` : ''}`),
++      h('ul', { class: 'intg-list' }, items),
++      h('details', { class: 'intg-tech' }, h('summary', null, 'Info teknis'),
++        h('p', { class: 'hint' }, s.amnan_can_read
++          ? 'Arah sebaliknya (Amnan membaca data customer Acesio) sudah bisa dipakai: kunci server (BOT_API_KEY) aktif.'
++          : 'Arah sebaliknya (Amnan membaca data customer Acesio) belum aktif: isi BOT_API_KEY di berkas .env server.')));
++  }
++
++  // Ringkasan 3 langkah sekali lihat; langkah aktif = yang pertama belum selesai.
++  function progress(s) {
++    const items = [['Sambungkan', s.connected], ['Pilih yang dikirim', s.connected && s.send_visit && s.enabled], ['Nyalakan', s.enabled]];
++    const cur = items.findIndex(([, d]) => !d);
++    return h('ol', { class: 'intg-progress', 'aria-label': 'Ringkasan langkah' },
++      items.map(([label, done], i) => h('li', { class: done ? 'is-done' : (i === cur ? 'is-now' : '') },
++        h('span', { class: 'intg-progress__n', 'aria-hidden': 'true' }, done ? icon('check', 12) : String(i + 1)), label,
++        done ? h('span', { class: 'sr-only' }, ' (selesai)') : null)));
++  }
++
++  function render(s) {
++    const x = s.connected;
++    body.replaceChildren(
++      flow(s),
++      h('p', { class: 'intg-lead' }, 'Setiap layanan yang dicatat di Acesio otomatis tampil di riwayat chat WhatsApp pelanggan. Tim admin langsung tahu pelanggan sudah berkunjung berapa kali dan layanan apa.'),
++      banner(s),
++      progress(s),
++      h('ol', { class: 'intg-steps' },
++        step({ n: 1, title: 'Sambungkan ke Amnan', done: x, children: x ? connectedView(s) : connectForm() }),
++        step({ n: 2, title: 'Pilih yang dikirim', done: false, locked: !x, children: x ? chooseView(s) : [h('p', { class: 'hint' }, 'Muncul setelah tersambung.')] }),
++        step({ n: 3, title: 'Nyalakan', done: s.enabled, locked: !x, children: x ? switchOnView(s) : [h('p', { class: 'hint' }, 'Muncul setelah tersambung.')] })),
++      x ? activity(s) : null);
++  }
++
++  body.append(h('p', { class: 'muted' }, 'Memuat…'));
++  api('/api/sv/integration').then((s) => { current = s; if (onState) onState(s); render(s); })
++    .catch((e) => { if (!e.aborted) body.replaceChildren(h('p', { class: 'error' }, e.message)); });
++  return modal;
++}
+diff --git a/public/js/shell.js b/public/js/shell.js
+index 633ce72..e2895b1 100644
+--- a/public/js/shell.js
++++ b/public/js/shell.js
+@@ -47,7 +47,7 @@ export function openAccountModal(user) {
+ // onSelect(id, main, ctx): ctx = { signal, isCurrent() } baru untuk SETIAP pergantian tab;
+ // ctx tab sebelumnya otomatis dibatalkan. Tampilan async wajib memakai ctx.signal untuk fetch
+ // dan mengecek ctx.isCurrent() sebelum menyentuh DOM.
+-export function createShell({ user, tabs, onSelect, onLogout }) {
++export function createShell({ user, tabs, onSelect, onLogout, actions = [] }) {
+   disposeActiveShell();
+   const tabButtons = new Map();
+   const nav = h('nav', { class: 'tabs', 'aria-label': 'Menu utama' });
+@@ -62,6 +62,7 @@ export function createShell({ user, tabs, onSelect, onLogout }) {
+       brand(),
+       nav,
+       h('div', { class: 'topbar__user' },
++        ...actions,
+         h('button', { class: 'userbtn', type: 'button', title: `${ROLE_LABEL[user.role]} · ganti password`, onclick: () => openAccountModal(user) }, user.name),
+         h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Keluar', title: 'Keluar', onclick: onLogout }, icon('logout', 20)))));
+   const el = h('div', null, header, main);
+diff --git a/public/js/staff.js b/public/js/staff.js
+index b9b7f41..b693c7a 100644
+--- a/public/js/staff.js
++++ b/public/js/staff.js
+@@ -9,6 +9,7 @@ import {
+   customersView, createGate, downloadButton, tableWrap, pagerNodes, rangeLabel, NO_CTX,
+ } from './customers.js';
+ import { auditView } from './audit.js';
++import { integrationButton } from './integration.js';
+ import { groupRecords, customerGroups } from './groups.js';
+ 
+ const isAbort = (e) => e?.name === 'AbortError';
+@@ -20,6 +21,7 @@ export function renderStaffApp(root, user, { onLogout }) {
+   if (sv) tabs.push({ id: 'services', label: 'Pengaturan Layanan' }, { id: 'accounts', label: 'Akun User' }, { id: 'audit', label: 'Log Audit' });
+   const shell = createShell({
+     user, onLogout, tabs,
++    actions: sv ? [integrationButton()] : [],
+     // ctx = { signal, isCurrent() } dari shell.select; NO_CTX hanya cadangan bila shell lama.
+     onSelect: (id, main, ctx) => {
+       const c = ctx || NO_CTX;
+diff --git a/public/js/ui.js b/public/js/ui.js
+index a98c96b..081850a 100644
+--- a/public/js/ui.js
++++ b/public/js/ui.js
+@@ -28,6 +28,7 @@ const ICONS = {
+   logout: '<path d="M10 5H5v14h5M15 8l4 4-4 4M19 12H9"/>',
+   edit: '<path d="M4 20l4-1 11-11-3-3L5 16l-1 4z"/>',
+   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
++  link: '<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/>',
+   lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/>',
+ };
+ export function icon(name, size = 18) {
+diff --git a/server/db.js b/server/db.js
+index 6caff10..9979b49 100644
+--- a/server/db.js
++++ b/server/db.js
+@@ -206,6 +206,32 @@ if (db.prepare('PRAGMA user_version').get().user_version < SCHEMA_VERSION) {
+   db.exec(AUDIT_INDEXES);
+ }
+ 
++// Integrasi ke Amnan (WhatsApp): pengaturan sederhana dan antrean kirim. Selalu IF NOT EXISTS,
++// jadi aman dijalankan berulang dan tidak mengubah nomor versi skema.
++db.exec(`
++CREATE TABLE IF NOT EXISTS integration_settings (
++  key TEXT PRIMARY KEY,
++  value TEXT NOT NULL DEFAULT ''
++);
++CREATE TABLE IF NOT EXISTS integration_outbox (
++  id INTEGER PRIMARY KEY AUTOINCREMENT,
++  uid TEXT NOT NULL,
++  created_at TEXT NOT NULL,
++  customer_id INTEGER,
++  day TEXT NOT NULL DEFAULT '',
++  phone TEXT NOT NULL DEFAULT '',
++  payload TEXT NOT NULL DEFAULT '{}',
++  thanks INTEGER NOT NULL DEFAULT 0,
++  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','failed','skipped')),
++  attempts INTEGER NOT NULL DEFAULT 0,
++  next_at INTEGER NOT NULL DEFAULT 0,
++  done_steps INTEGER NOT NULL DEFAULT 0,
++  last_error TEXT NOT NULL DEFAULT '',
++  sent_at TEXT NOT NULL DEFAULT ''
++);
++CREATE INDEX IF NOT EXISTS idx_outbox_due ON integration_outbox(status, next_at);
++`);
++
+ // 29 kotak layanan tetap; supervisor mengubah nama dan fotonya.
+ export const SERVICE_COUNT = 29;
+ if (db.prepare('SELECT COUNT(*) AS n FROM services').get().n < SERVICE_COUNT) {
+diff --git a/server/index.js b/server/index.js
+index 3b5e85a..8d8f338 100644
+--- a/server/index.js
++++ b/server/index.js
+@@ -13,6 +13,7 @@ const { sessionUser, hashPassword, isSecure } = await import('./auth.js');
+ const { routes, loadRoutes, LIMITS } = await import('./routes/index.js');
+ await loadRoutes();
+ const { botKeyValid } = await import('./routes/bot.js');
++const { startWorker, stopWorker } = await import('./integration.js');
+ const { HttpError } = await import('./util.js');
+ 
+ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+@@ -319,6 +320,7 @@ function shutdown(signal) {
+     process.exit(1);
+   }, 10_000);
+   force.unref();
++  stopWorker();
+   server.close(() => {
+     closeDb();
+     console.log('  Server ditutup.');
+@@ -349,4 +351,5 @@ process.on('unhandledRejection', (reason) => console.error(`[${new Date().toISOS
+ process.on('SIGTERM', () => shutdown('SIGTERM'));
+ process.on('SIGINT', () => shutdown('SIGINT'));
+ 
++startWorker();
+ console.log(`  Acesio Dashboard berjalan di http://localhost:${server.address().port}\n`);
+diff --git a/server/integration.js b/server/integration.js
+new file mode 100644
+index 0000000..2844031
+--- /dev/null
++++ b/server/integration.js
+@@ -0,0 +1,398 @@
++// Integrasi Acesio -> Amnan (WhatsApp), kontrak v1 Amnan (lihat Amnan docs/INTEGRASI.md).
++//
++// Alurnya: saat terapis mencatat layanan, Acesio menaruh satu baris di antrean (integration_outbox) DALAM
++// transaksi yang sama dengan pencatatan, lalu pekerja latar mengirimnya ke Amnan. Amnan mati atau lambat
++// tidak pernah menggagalkan pencatatan layanan; kiriman diulang otomatis dan bisa dikirim ulang manual.
++//
++// Yang dikirim ke Amnan: nama, No RM, jumlah kunjungan, waktu dan nama layanan terakhir. Catatan Medis,
++// komisi, dan data terapis TIDAK pernah dikirim.
++import crypto from 'node:crypto';
++import net from 'node:net';
++import { db, tx } from './db.js';
++import { HttpError } from './util.js';
++import { seal, open } from './secretbox.js';
++
++export const DEFAULT_THANKS = 'Halo {nama}, terima kasih sudah berkunjung ke Acesio. Jika ada keluhan setelah sesi, balas pesan ini ya.';
++const REQUIRED_SCOPES = ['leads:write', 'events:write'];
++const SCOPE_LABEL = {
++  'leads:write': 'mengisi data pelanggan',
++  'events:write': 'mencatat kunjungan',
++  'messages:send': 'mengirim pesan WhatsApp',
++};
++const RETRY_DELAYS_SEC = [30, 120, 600, 3600, 21600];
++const TIMEOUT_MS = 10_000;
++const STALE_THANKS_MS = 24 * 3600 * 1000;
++
++// ---------------------------------------------------------------- pengaturan
++
++const DEFAULTS = {
++  enabled: '0', amnan_url: '', api_key: '', brand: '', app_slug: 'acesio', wa_status: '', scopes: '[]',
++  tested_at: '', last_error: '', last_ok_at: '', send_visit: '1', send_thanks: '0', thanks_text: DEFAULT_THANKS,
++};
++
++function readAll() {
++  const out = { ...DEFAULTS };
++  for (const r of db.prepare('SELECT key, value FROM integration_settings').all()) if (r.key in out) out[r.key] = r.value;
++  return out;
++}
++
++function write(obj) {
++  const up = db.prepare('INSERT INTO integration_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
++  tx(() => { for (const [k, v] of Object.entries(obj)) up.run(k, String(v)); });
++}
++
++const scopesOf = (S) => { try { const a = JSON.parse(S.scopes); return Array.isArray(a) ? a.map(String) : []; } catch { return []; } };
++
++// ---------------------------------------------------------------- alamat dan kode sambungan
++
++const b64uJson = (s) => JSON.parse(Buffer.from(s, 'base64url').toString('utf8'));
++
++// Menerima "kode sambungan" Amnan (AMN1....) atau kunci akses polos (amk_...).
++export function parseCode(raw) {
++  const s = String(raw || '').trim().replace(/\s+/g, '');
++  if (!s) return { url: '', key: '' };
++  if (/^AMN1\./i.test(s)) {
++    try {
++      const d = b64uJson(s.slice(5));
++      if (typeof d.k === 'string' && d.k) return { url: typeof d.u === 'string' ? d.u : '', key: d.k };
++    } catch { /* jatuh ke galat di bawah */ }
++    throw new HttpError(400, 'Kode sambungan tidak bisa dibaca. Salin ulang kodenya dari Amnan.');
++  }
++  if (/^amk_[A-Za-z0-9]{4,16}\.[A-Za-z0-9_-]{16,}$/.test(s)) return { url: '', key: s };
++  throw new HttpError(400, 'Kode tidak dikenali. Tempel "kode sambungan" atau "kunci akses" dari Amnan.');
++}
++
++function privateHost(host) {
++  if (host === 'localhost' || host.endsWith('.localhost')) return true;
++  if (net.isIP(host) === 4) {
++    const [a, b] = host.split('.').map(Number);
++    return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
++  }
++  return host === '[::1]' || host === '::1';
++}
++
++export function cleanUrl(raw) {
++  let u;
++  try { u = new URL(String(raw || '').trim()); } catch { throw new HttpError(400, 'Alamat Amnan tidak valid. Contoh: https://wa.klinikanda.id'); }
++  if (!/^https?:$/.test(u.protocol) || !u.hostname || u.username || u.password || u.search || u.hash) {
++    throw new HttpError(400, 'Alamat Amnan harus berbentuk https://... tanpa tambahan apa pun di belakangnya.');
++  }
++  if (u.hostname.startsWith('169.254.')) throw new HttpError(400, 'Alamat ini tidak diizinkan.');
++  if (u.protocol === 'http:' && !privateHost(u.hostname)) {
++    throw new HttpError(400, 'Gunakan alamat https:// agar kunci akses tidak terkirim tanpa enkripsi. (http:// hanya boleh untuk server yang sama, mis. http://127.0.0.1:8080)');
++  }
++  return `${u.origin}${u.pathname}`.replace(/\/+$/, '');
++}
++
++// ---------------------------------------------------------------- panggilan ke Amnan
++
++async function call({ url, key }, method, path, body, idem) {
++  const headers = { Authorization: `Bearer ${key}`, Accept: 'application/json' };
++  if (body !== undefined) headers['Content-Type'] = 'application/json';
++  if (idem) headers['Idempotency-Key'] = idem;
++  let res;
++  try {
++    res = await fetch(url + path, {
++      method, headers, body: body === undefined ? undefined : JSON.stringify(body),
++      redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS),
++    });
++  } catch {
++    return { network: true, status: 0, json: null };
++  }
++  let json = null;
++  try { json = JSON.parse((await res.text()).slice(0, 50_000)); } catch { /* bukan JSON */ }
++  return { network: false, status: res.status, json };
++}
++
++// Mengubah balasan Amnan menjadi keputusan: ok | retry (coba lagi nanti) | perm (gagal tetap) | skip.
++// link = masalah di sambungan itu sendiri, jadi sisa antrean juga ditunda.
++function classify(r) {
++  const msg = r.json?.error ? String(r.json.error).slice(0, 200) : '';
++  if (r.network) return { retry: true, link: true, msg: 'Amnan tidak bisa dijangkau' };
++  if (r.status >= 200 && r.status < 300) return { ok: true };
++  if (r.status >= 300 && r.status < 400) return { retry: true, link: true, msg: 'Alamat Amnan dialihkan ke tempat lain' };
++  if (r.status === 401) return { retry: true, link: true, msg: 'Kunci akses ditolak Amnan (salah atau sudah dicabut)', auth: true };
++  if (r.status === 403 && r.json?.code === 'BLOCKED') return { skip: true, msg: 'Nomor ini diblokir di Amnan' };
++  if (r.status === 429) return { retry: true, link: true, msg: 'Batas kirim harian Amnan tercapai' };
++  if (r.status === 503) return { retry: true, link: true, msg: 'WhatsApp di Amnan belum tersambung' };
++  if (r.status >= 500) return { retry: true, link: true, msg: 'Amnan sedang bermasalah' };
++  return { perm: true, msg: msg || `Ditolak Amnan (kode ${r.status})` };
++}
++
++function friendlyTestError(r) {
++  if (r.network) return 'Amnan tidak bisa dijangkau di alamat itu. Pastikan alamatnya benar dan Amnan sedang menyala.';
++  if (r.status === 401) return 'Kunci akses ditolak Amnan. Salin ulang kode terbaru dari Amnan.';
++  if (r.status === 429) return 'Terlalu banyak percobaan. Tunggu beberapa menit lalu coba lagi.';
++  if (r.status >= 300 && r.status < 400) return 'Alamat dialihkan ke tempat lain. Pakai alamat akhirnya (biasanya yang diawali https://).';
++  if (r.status >= 500) return 'Amnan menjawab dengan galat. Coba lagi sebentar lagi.';
++  return 'Alamat ini sepertinya bukan Amnan, atau versi Amnan-nya terlalu lama.';
++}
++
++// Uji sambungan (GET /api/v1/ping). Melempar HttpError berbahasa awam bila gagal.
++async function ping(cfg) {
++  const r = await call(cfg, 'GET', '/api/v1/ping');
++  if (!(r.status === 200 && r.json?.ok === true && r.json?.app)) throw new HttpError(400, friendlyTestError(r));
++  return {
++    brand: String(r.json.brand || r.json.client || '').slice(0, 100),
++    wa: String(r.json.wa?.status || ''),
++    scopes: Array.isArray(r.json.app.scopes) ? r.json.app.scopes.map(String) : [],
++  };
++}
++
++function missingOf(scopes, needed = REQUIRED_SCOPES) {
++  return needed.filter((s) => !scopes.includes(s));
++}
++
++const missingText = (m) => m.map((s) => SCOPE_LABEL[s] || s).join(', ');
++
++// ---------------------------------------------------------------- sambung / putus / pengaturan
++
++export async function connect({ code, url, key }) {
++  const parsed = parseCode(code);
++  const finalKey = parsed.key || String(key || '').trim();
++  if (!finalKey) throw new HttpError(400, 'Tempel kode sambungan dari Amnan.');
++  if (!parsed.key && !/^amk_[A-Za-z0-9]{4,16}\.[A-Za-z0-9_-]{16,}$/.test(finalKey)) throw new HttpError(400, 'Kunci akses tidak dikenali. Salin ulang dari Amnan.');
++  const finalUrl = cleanUrl(String(url || '').trim() || parsed.url);
++  const info = await ping({ url: finalUrl, key: finalKey });
++  const missing = missingOf(info.scopes);
++  if (missing.length) throw new HttpError(400, `Kunci ini belum boleh ${missingText(missing)}. Minta admin Amnan memberi izin itu, atau buat kunci baru.`);
++  const S = readAll();
++  write({
++    amnan_url: finalUrl, api_key: seal(finalKey), brand: info.brand, wa_status: info.wa, scopes: JSON.stringify(info.scopes),
++    tested_at: new Date().toISOString(), last_error: '',
++    // Ucapan terima kasih mati sendiri bila kunci baru tidak boleh mengirim pesan.
++    send_thanks: info.scopes.includes('messages:send') ? S.send_thanks : '0',
++  });
++  return { brand: info.brand, wa: info.wa };
++}
++
++export async function retest() {
++  const S = readAll();
++  const key = open(S.api_key);
++  if (!key) throw new HttpError(409, 'Belum tersambung ke Amnan.');
++  try {
++    const info = await ping({ url: S.amnan_url, key });
++    write({ brand: info.brand, wa_status: info.wa, scopes: JSON.stringify(info.scopes), tested_at: new Date().toISOString(), last_error: '', last_ok_at: new Date().toISOString() });
++    return { ok: true, message: 'Sambungan baik.' };
++  } catch (e) {
++    if (!(e instanceof HttpError)) throw e;
++    write({ tested_at: new Date().toISOString(), last_error: e.message });
++    return { ok: false, message: e.message };
++  }
++}
++
++export function disconnect() {
++  tx(() => {
++    write({ enabled: '0', api_key: '', brand: '', wa_status: '', scopes: '[]', tested_at: '', last_error: '', last_ok_at: '' });
++    db.prepare("UPDATE integration_outbox SET status = 'skipped', last_error = 'Integrasi diputus sebelum terkirim' WHERE status = 'pending'").run();
++  });
++}
++
++export function update(patch) {
++  const S = readAll();
++  const next = {};
++  const bool = (v, name) => {
++    if (typeof v !== 'boolean') throw new HttpError(400, `Nilai ${name} tidak valid`);
++    return v ? '1' : '0';
++  };
++  const connected = !!S.api_key;
++  if (patch.send_visit !== undefined) next.send_visit = bool(patch.send_visit, 'send_visit');
++  if (patch.send_thanks !== undefined) next.send_thanks = bool(patch.send_thanks, 'send_thanks');
++  if (patch.thanks_text !== undefined) {
++    const t = String(patch.thanks_text).trim();
++    if (!t || t.length > 500) throw new HttpError(400, 'Isi ucapan harus 1–500 karakter');
++    next.thanks_text = t;
++  }
++  if (patch.enabled !== undefined) {
++    next.enabled = bool(patch.enabled, 'enabled');
++    if (next.enabled === '1' && !connected) throw new HttpError(409, 'Sambungkan ke Amnan dulu sebelum menyalakan.');
++  }
++  const merged = { ...S, ...next };
++  if (merged.send_thanks === '1') {
++    if (merged.send_visit !== '1') throw new HttpError(400, 'Ucapan terima kasih butuh "Catat kunjungan" menyala.');
++    if (!scopesOf(merged).includes('messages:send')) throw new HttpError(400, 'Kunci akses ini belum boleh mengirim pesan WhatsApp. Minta admin Amnan menambah izinnya.');
++  }
++  write(next);
++  return Object.keys(next);
++}
++
++// ---------------------------------------------------------------- antrean
++
++const phoneOk = (p) => /^\d{8,15}$/.test(String(p || ''));
++
++// Dipanggil DI DALAM transaksi pencatatan layanan (server/records.js). Tidak pernah melempar error.
++export function enqueueVisit({ customer, serviceIds, day }) {
++  try {
++    const S = readAll();
++    if (S.enabled !== '1' || S.send_visit !== '1' || !S.api_key) return;
++    const names = db.prepare(`SELECT name FROM services WHERE id IN (${serviceIds.map(() => '?').join(',')}) ORDER BY position`).all(...serviceIds).map((r) => r.name);
++    const visits = db.prepare('SELECT COUNT(DISTINCT batch) AS n FROM records WHERE customer_id = ?').get(customer.id).n;
++    const phone = String(customer.phone || '');
++    const when = new Date().toISOString();
++    let thanks = 0;
++    if (S.send_thanks === '1' && phoneOk(phone) && scopesOf(S).includes('messages:send')) {
++      const already = db.prepare("SELECT 1 FROM integration_outbox WHERE customer_id = ? AND day = ? AND thanks = 1 AND status IN ('pending','sent')").get(customer.id, day);
++      thanks = already ? 0 : 1;
++    }
++    const payload = { name: customer.name, rm: customer.rm_no || '', services: names, visits, at: when, text: thanks ? S.thanks_text : '' };
++    const skipped = !phoneOk(phone);
++    db.prepare(`INSERT INTO integration_outbox (uid, created_at, customer_id, day, phone, payload, thanks, status, last_error)
++                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
++      .run(crypto.randomUUID(), when, customer.id, day, phone, JSON.stringify(payload), thanks, skipped ? 'skipped' : 'pending', skipped ? 'Customer belum punya nomor WA yang valid' : '');
++    if (!skipped) kick();
++  } catch (err) {
++    console.error(`[${new Date().toISOString()}] integrasi: gagal mengantre`, err);
++  }
++}
++
++const steps = (row) => (row.thanks ? ['contact', 'event', 'message'] : ['contact', 'event']);
++const trim500 = (s) => String(s).slice(0, 500);
++
++async function runStep(name, row, p, cfg, S) {
++  const slug = S.app_slug || 'acesio';
++  const idem = (suffix = '') => `${row.uid}-${name}${suffix}`;
++  if (name === 'contact') {
++    return call(cfg, 'PUT', `/api/v1/contacts/${row.phone}`, {
++      name: p.name,
++      data: { rmNo: String(p.rm || ''), visits: Number(p.visits) || 0, lastVisitAt: p.at, lastServices: trim500((p.services || []).join(', ')) },
++    }, idem());
++  }
++  if (name === 'event') {
++    const send = (s) => call(cfg, 'POST', '/api/v1/events', {
++      type: `${s}.visit_recorded`, phone: row.phone, name: p.name,
++      summary: trim500(`Kunjungan dicatat di Acesio: ${(p.services || []).join(', ') || '-'}${p.rm ? ` (RM ${p.rm})` : ''}`),
++      data: { rmNo: String(p.rm || ''), services: (p.services || []).length },
++    }, idem(`-${s}`));
++    let r = await send(slug);
++    // Amnan hanya menerima kejadian berawalan nama aplikasi milik kunci. Bila beda dari bawaan, ikuti dan ingat.
++    const m = r.status === 403 && r.json?.code === 'FORBIDDEN_SCOPE' && /berawalan "([a-z][a-z0-9-]*)\./.exec(String(r.json?.error || ''));
++    if (m && m[1] !== slug) {
++      write({ app_slug: m[1] });
++      r = await send(m[1]);
++    }
++    return r;
++  }
++  const first = String(p.name || '').trim();
++  return call(cfg, 'POST', '/api/v1/messages', { phone: row.phone, name: first, text: String(p.text || '').replace(/\{nama\}/gi, first).slice(0, 4000) }, idem());
++}
++
++async function deliver(row, cfg, S) {
++  let p;
++  try { p = JSON.parse(row.payload); } catch { p = {}; }
++  const list = steps(row);
++  for (let i = row.done_steps; i < list.length; i++) {
++    if (list[i] === 'message' && Date.now() - Date.parse(row.created_at) > STALE_THANKS_MS) break; // ucapan basi tidak dikirim
++    const d = classify(await runStep(list[i], row, p, cfg, S));
++    if (d.ok) { db.prepare('UPDATE integration_outbox SET done_steps = ? WHERE id = ?').run(i + 1, row.id); continue; }
++    if (d.skip) {
++      db.prepare("UPDATE integration_outbox SET status = 'skipped', last_error = ? WHERE id = ?").run(d.msg, row.id);
++      return { link: false };
++    }
++    if (d.auth) write({ last_error: d.msg });
++    const attempts = row.attempts + 1;
++    if (d.perm || attempts > RETRY_DELAYS_SEC.length) {
++      db.prepare("UPDATE integration_outbox SET status = 'failed', attempts = ?, last_error = ? WHERE id = ?").run(attempts, d.msg, row.id);
++    } else {
++      const next = Date.now() + RETRY_DELAYS_SEC[attempts - 1] * 1000;
++      db.prepare('UPDATE integration_outbox SET attempts = ?, next_at = ?, last_error = ? WHERE id = ?').run(attempts, next, d.msg, row.id);
++    }
++    return { link: !!d.link };
++  }
++  const now = new Date().toISOString();
++  db.prepare("UPDATE integration_outbox SET status = 'sent', sent_at = ?, last_error = '' WHERE id = ?").run(now, row.id);
++  write({ last_ok_at: now, last_error: '' });
++  return { link: false };
++}
++
++let timer = null;
++let busy = false;
++let kickTimer = null;
++
++export async function tick() {
++  if (busy) return;
++  busy = true;
++  try {
++    const S = readAll();
++    const key = open(S.api_key);
++    if (S.enabled !== '1' || !key) return;
++    const cfg = { url: S.amnan_url, key };
++    for (let i = 0; i < 25; i++) {
++      const row = db.prepare("SELECT * FROM integration_outbox WHERE status = 'pending' AND next_at <= ? ORDER BY id LIMIT 1").get(Date.now());
++      if (!row) break;
++      const r = await deliver(row, cfg, readAll());
++      if (r.link) break; // sambungan bermasalah: jangan menghantam Amnan dengan sisa antrean
++    }
++    db.prepare("DELETE FROM integration_outbox WHERE status IN ('sent','skipped') AND created_at < ?").run(new Date(Date.now() - 30 * 86_400_000).toISOString());
++  } catch (err) {
++    if (!/not open|closed/i.test(String(err?.message))) console.error(`[${new Date().toISOString()}] integrasi: pekerja error`, err);
++  } finally {
++    busy = false;
++  }
++}
++
++function kick() {
++  if (kickTimer) return;
++  kickTimer = setTimeout(() => { kickTimer = null; tick(); }, 400);
++  kickTimer.unref();
++}
++
++export function startWorker() {
++  if (timer) return;
++  timer = setInterval(tick, 5000);
++  timer.unref();
++  kick();
++}
++
++export function stopWorker() {
++  clearInterval(timer);
++  clearTimeout(kickTimer);
++  timer = null;
++  kickTimer = null;
++}
++
++export function retryFailed() {
++  const r = db.prepare("UPDATE integration_outbox SET status = 'pending', attempts = 0, next_at = 0, last_error = '' WHERE status = 'failed'").run();
++  if (r.changes) kick();
++  return Number(r.changes);
++}
++
++// ---------------------------------------------------------------- tampilan untuk dashboard
++
++const hintOf = (key) => {
++  const id = String(key || '').split('.')[0];
++  return id ? `${id}.••••••••` : '';
++};
++
++export function state() {
++  const S = readAll();
++  const key = open(S.api_key);
++  const scopes = scopesOf(S);
++  const n = (sql, ...a) => db.prepare(sql).get(...a).n;
++  const day = new Date(Date.now() - 86_400_000).toISOString();
++  const stats = {
++    pending: n("SELECT COUNT(*) AS n FROM integration_outbox WHERE status = 'pending'"),
++    failed: n("SELECT COUNT(*) AS n FROM integration_outbox WHERE status = 'failed'"),
++    sent_24h: n("SELECT COUNT(*) AS n FROM integration_outbox WHERE status = 'sent' AND sent_at >= ?", day),
++    last_ok_at: S.last_ok_at || '',
++  };
++  const recent = db.prepare('SELECT id, created_at, status, attempts, last_error, payload, thanks FROM integration_outbox ORDER BY id DESC LIMIT 8').all().map((r) => {
++    let p = {};
++    try { p = JSON.parse(r.payload); } catch { /* abaikan */ }
++    return { id: r.id, at: r.created_at, status: r.status, error: r.last_error, customer: p.name || '', services: (p.services || []).join(', '), thanks: !!r.thanks };
++  });
++  const connected = !!(S.api_key && key);
++  const enabled = connected && S.enabled === '1';
++  let status = 'none';
++  if (connected) status = !enabled ? 'paused' : (S.last_error || stats.failed > 0 ? 'problem' : 'on');
++  return {
++    status, connected, enabled,
++    url: connected ? S.amnan_url : '', key_hint: connected ? hintOf(key) : '', brand: S.brand,
++    wa_status: S.wa_status, scopes, can_message: scopes.includes('messages:send'),
++    missing_scopes: missingOf(scopes).map((s) => SCOPE_LABEL[s] || s),
++    tested_at: S.tested_at, last_error: S.last_error,
++    send_visit: S.send_visit === '1', send_thanks: S.send_thanks === '1', thanks_text: S.thanks_text,
++    stats, recent,
++    // Arah sebaliknya (Amnan membaca data customer Acesio) memakai BOT_API_KEY di .env.
++    amnan_can_read: !!process.env.BOT_API_KEY,
++  };
++}
+diff --git a/server/records.js b/server/records.js
+index 7b6662e..7dc8b94 100644
+--- a/server/records.js
++++ b/server/records.js
+@@ -3,6 +3,7 @@ import { db, tx } from './db.js';
+ import { HttpError } from './util.js';
+ import { ymd } from './clock.js';
+ import { logAudit } from './audit.js';
++import { enqueueVisit } from './integration.js';
+ 
+ const nowIso = () => new Date().toISOString();
+ 
+@@ -32,6 +33,8 @@ export function createRecords({ userId, customer, serviceIds, source, note }) {
+       if (!svc.get(id)) throw new HttpError(400, 'Ada layanan yang tidak ditemukan');
+       ins.run(userId, customer.id, id, price.get(userId, id)?.amount ?? 0, source, when, day, String(note || ''), batch);
+     }
++    // Antrean ke Amnan ikut transaksi ini; tidak pernah melempar error dan tidak menunggu jaringan.
++    enqueueVisit({ customer, serviceIds, day });
+     return serviceIds.length;
+   });
+ }
+diff --git a/server/routes/index.js b/server/routes/index.js
+index 2d3900d..50d5d2e 100644
+--- a/server/routes/index.js
++++ b/server/routes/index.js
+@@ -21,7 +21,7 @@ export function add(method, pattern, access, handler, opts = {}) {
+   routes.push({ method, pattern, rx, keys, access, handler, limit: opts.limit });
+ }
+ 
+-const ROUTE_FILES = ['auth', 'records', 'history', 'staff-report', 'staff-customers', 'sv', 'bot'];
++const ROUTE_FILES = ['auth', 'records', 'history', 'staff-report', 'staff-customers', 'sv', 'integration', 'bot'];
+ 
+ export async function loadRoutes() {
+   for (const f of ROUTE_FILES) await import(`./${f}.js`);
+diff --git a/server/routes/integration.js b/server/routes/integration.js
+new file mode 100644
+index 0000000..b47f4b3
+--- /dev/null
++++ b/server/routes/integration.js
+@@ -0,0 +1,46 @@
++// Menu Integrasi (khusus supervisor): sambungkan Acesio ke Amnan (WhatsApp), pilih yang dikirim, nyalakan.
++// Kunci akses tidak pernah dikembalikan ke browser; yang tampil hanya petunjuk samar (amk_xxxx.••••).
++import { add } from './index.js';
++import { HttpError } from '../util.js';
++import { clientIp } from '../auth.js';
++import { logAudit } from '../audit.js';
++import * as I from '../integration.js';
++
++const audit = (req, user, action, detail = {}) => logAudit({
++  actor: { id: user.id, name: user.name }, action, targetType: 'integration', targetId: 'amnan', detail, ip: clientIp(req),
++});
++
++const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
++
++add('GET', '/api/sv/integration', 'sv', () => I.state());
++
++add('POST', '/api/sv/integration/connect', 'sv', async ({ req, user, body }) => {
++  if (!isObj(body)) throw new HttpError(400, 'Data tidak valid');
++  const r = await I.connect({ code: body.code, url: body.url, key: body.key });
++  audit(req, user, 'integration.connect', { brand: r.brand });
++  return I.state();
++}, { limit: 16 * 1024 });
++
++add('POST', '/api/sv/integration/test', 'sv', async () => {
++  const test = await I.retest();
++  return { ...I.state(), test };
++});
++
++add('PUT', '/api/sv/integration', 'sv', ({ req, user, body }) => {
++  if (!isObj(body)) throw new HttpError(400, 'Data tidak valid');
++  const changed = I.update({ enabled: body.enabled, send_visit: body.send_visit, send_thanks: body.send_thanks, thanks_text: body.thanks_text });
++  if (changed.length) audit(req, user, 'integration.update', Object.fromEntries(changed.map((k) => [k, k === 'thanks_text' ? '(diubah)' : body[k]])));
++  return I.state();
++}, { limit: 16 * 1024 });
++
++add('POST', '/api/sv/integration/retry', 'sv', ({ req, user }) => {
++  const n = I.retryFailed();
++  if (n) audit(req, user, 'integration.retry', { count: n });
++  return I.state();
++});
++
++add('POST', '/api/sv/integration/disconnect', 'sv', ({ req, user }) => {
++  I.disconnect();
++  audit(req, user, 'integration.disconnect');
++  return I.state();
++});
+diff --git a/server/secretbox.js b/server/secretbox.js
+new file mode 100644
+index 0000000..91333bb
+--- /dev/null
++++ b/server/secretbox.js
+@@ -0,0 +1,42 @@
++// Menyimpan rahasia (mis. kunci akses Amnan) terenkripsi di database.
++// Kunci enkripsi dibuat otomatis sekali di DATA_DIR/integration.key (izin 600), terpisah dari acesio.db,
++// jadi salinan database saja (backup, kiriman ke orang lain) tidak membuka rahasianya.
++// AES-256-GCM; format tersimpan: v1.<iv>.<tag>.<data> (base64url).
++import fs from 'node:fs';
++import path from 'node:path';
++import crypto from 'node:crypto';
++import { dataDir } from './db.js';
++
++const FILE = path.join(dataDir, 'integration.key');
++let cached = null;
++
++function loadKey() {
++  if (cached) return cached;
++  try {
++    const raw = Buffer.from(fs.readFileSync(FILE, 'utf8').trim(), 'base64url');
++    if (raw.length === 32) return (cached = raw);
++  } catch { /* belum ada */ }
++  const key = crypto.randomBytes(32);
++  fs.writeFileSync(FILE, key.toString('base64url') + '\n', { mode: 0o600, flag: 'wx' });
++  return (cached = key);
++}
++
++export function seal(plain) {
++  const iv = crypto.randomBytes(12);
++  const c = crypto.createCipheriv('aes-256-gcm', loadKey(), iv);
++  const data = Buffer.concat([c.update(String(plain), 'utf8'), c.final()]);
++  return ['v1', iv, c.getAuthTag(), data].map((x) => (Buffer.isBuffer(x) ? x.toString('base64url') : x)).join('.');
++}
++
++// Mengembalikan '' bila kosong, rusak, atau kunci enkripsi berbeda (bukan error: pemakai cukup menyambung ulang).
++export function open(sealed) {
++  try {
++    const [v, iv, tag, data] = String(sealed || '').split('.');
++    if (v !== 'v1' || !data) return '';
++    const d = crypto.createDecipheriv('aes-256-gcm', loadKey(), Buffer.from(iv, 'base64url'));
++    d.setAuthTag(Buffer.from(tag, 'base64url'));
++    return Buffer.concat([d.update(Buffer.from(data, 'base64url')), d.final()]).toString('utf8');
++  } catch {
++    return '';
++  }
++}
+diff --git a/test/integration-ui.test.mjs b/test/integration-ui.test.mjs
+new file mode 100644
+index 0000000..b2ecd5a
+--- /dev/null
++++ b/test/integration-ui.test.mjs
+@@ -0,0 +1,40 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++const { urlFromCode, ago, statusInfo, waText } = await import('../public/js/integration.js');
++
++test('alamat Amnan dibaca dari kode sambungan; kode lain atau rusak menghasilkan kosong', () => {
++  const code = 'AMN1.' + Buffer.from(JSON.stringify({ u: 'https://wa.klinik.id', k: 'amk_x' })).toString('base64url');
++  assert.equal(urlFromCode(code), 'https://wa.klinik.id');
++  assert.equal(urlFromCode(`  ${code.slice(0, 20)}\n${code.slice(20)}  `), 'https://wa.klinik.id', 'spasi dan baris baru karena salin-tempel diabaikan');
++  assert.equal(urlFromCode('amk_ab12cd34.abcdefghijklmnop'), '');
++  assert.equal(urlFromCode('AMN1.%%%'), '');
++  assert.equal(urlFromCode(''), '');
++});
++
++test('waktu relatif', () => {
++  const now = Date.parse('2026-11-04T10:00:00Z');
++  assert.equal(ago('2026-11-04T09:59:40Z', now), 'baru saja');
++  assert.equal(ago('2026-11-04T09:55:00Z', now), '5 menit lalu');
++  assert.equal(ago('2026-11-04T07:00:00Z', now), '3 jam lalu');
++  assert.equal(ago('', now), '');
++  assert.equal(ago('bukan tanggal', now), '');
++});
++
++test('banner status memakai bahasa awam untuk tiap keadaan', () => {
++  const base = { stats: { pending: 0, failed: 0, last_ok_at: '' }, last_error: '' };
++  assert.equal(statusInfo({ ...base, status: 'none' }).title, 'Belum tersambung');
++  assert.equal(statusInfo({ ...base, status: 'paused' }).tone, 'wait');
++  assert.match(statusInfo({ ...base, status: 'on' }).text, /Menunggu kunjungan pertama/);
++  const now = Date.parse('2026-11-04T10:00:00Z');
++  assert.match(statusInfo({ ...base, status: 'on', stats: { pending: 2, failed: 0, last_ok_at: '2026-11-04T09:00:00Z' } }, now).text, /1 jam lalu\. 2 kiriman sedang menunggu/);
++  const bad = statusInfo({ ...base, status: 'problem', last_error: 'Amnan tidak bisa dijangkau', stats: { pending: 0, failed: 3, last_ok_at: '' } });
++  assert.equal(bad.tone, 'bad');
++  assert.match(bad.text, /Amnan tidak bisa dijangkau\. 3 kiriman gagal\./);
++});
++
++test('status WhatsApp Amnan', () => {
++  assert.equal(waText('connected')[0], 'ok');
++  assert.equal(waText('qr')[0], 'wait');
++  assert.equal(waText('disconnected')[0], 'bad');
++  assert.equal(waText('aneh')[0], 'wait');
++});
+diff --git a/test/integration.test.mjs b/test/integration.test.mjs
+new file mode 100644
+index 0000000..95b770d
+--- /dev/null
++++ b/test/integration.test.mjs
+@@ -0,0 +1,242 @@
++// Tes menu Integrasi: Acesio -> Amnan, memakai Amnan tiruan (server HTTP kecil) dan server Acesio sungguhan.
++import { test, before, after } from 'node:test';
++import assert from 'node:assert/strict';
++import http from 'node:http';
++import path from 'node:path';
++import { DatabaseSync } from 'node:sqlite';
++import { startServer } from './helpers.mjs';
++
++const KEY = 'amk_ab12cd34.' + 'x'.repeat(43);
++const MEDICAL = 'RIWAYAT-MEDIS-RAHASIA';
++
++// ---------- Amnan tiruan ----------
++const fake = { seen: [], scopes: ['leads:write', 'events:write', 'messages:send'], slug: 'acesio', down: 0, rejectContacts: 0 };
++const amnan = http.createServer((req, res) => {
++  let raw = '';
++  req.on('data', (d) => { raw += d; });
++  req.on('end', () => {
++    const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
++    if (req.headers.authorization !== `Bearer ${KEY}`) return send(401, { error: 'API key salah', code: 'UNAUTHORIZED' });
++    const body = raw ? JSON.parse(raw) : null;
++    const url = new URL(req.url, 'http://x');
++    if (url.pathname === '/api/v1/ping') {
++      return send(200, { ok: true, contract: '1', brand: 'Klinik Uji', app: { id: 'ab12cd34', name: 'Acesio', scopes: fake.scopes }, wa: { status: 'connected' } });
++    }
++    fake.seen.push({ method: req.method, path: url.pathname, body, idem: req.headers['idempotency-key'] });
++    if (fake.down > 0) { fake.down--; return send(503, { error: 'WhatsApp belum tersambung', code: 'WA_UNAVAILABLE' }); }
++    if (url.pathname.startsWith('/api/v1/contacts/') && fake.rejectContacts > 0) { fake.rejectContacts--; return send(400, { error: 'data tidak valid', code: 'VALIDATION' }); }
++    if (url.pathname === '/api/v1/events' && body.type.split('.')[0] !== fake.slug) {
++      return send(403, { error: `Kunci ini hanya boleh mengirim kejadian berawalan "${fake.slug}."`, code: 'FORBIDDEN_SCOPE' });
++    }
++    return send(200, { ok: true });
++  });
++});
++await new Promise((r) => amnan.listen(0, '127.0.0.1', r));
++const AMNAN_URL = `http://127.0.0.1:${amnan.address().port}`;
++const code = 'AMN1.' + Buffer.from(JSON.stringify({ u: AMNAN_URL, k: KEY, w: 'whsec_x', l: 'link' })).toString('base64url');
++
++// ---------- Acesio ----------
++let srv; let sv; let therapist;
++const post = (p, body, who = sv, method = 'POST') => srv.call(p, { method, body, cookie: who.cookie });
++const state = async () => (await srv.call('/api/sv/integration', { cookie: sv.cookie })).json;
++const waitFor = async (fn, ms = 8000) => {
++  const t = Date.now();
++  for (;;) {
++    const v = await fn();
++    if (v) return v;
++    if (Date.now() - t > ms) throw new Error('waktu habis menunggu kondisi');
++    await new Promise((r) => setTimeout(r, 100));
++  }
++};
++let rm = 0;
++async function newCustomer({ phone = '0812-3456-7001', name = 'Siti Aminah' } = {}) {
++  const rmNo = `RM-${++rm}`;
++  const r = await post('/api/staff/customers', { rm_no: rmNo, name, phone, medical_note: MEDICAL });
++  assert.equal(r.status, 200, r.text);
++  return rmNo;
++}
++const visit = (rmNo, ids = [1, 2]) => post('/api/records', { customer_rm: rmNo, service_ids: ids }, therapist);
++
++before(async () => {
++  srv = await startServer({ env: { BOT_API_KEY: 'kunci-bot-uji-1234567890' } });
++  sv = await srv.login();
++  const r = await post('/api/sv/accounts', { username: 'terapis1', name: 'Terapis Satu', password: 'Password-Terapis-1', role: 'user' });
++  assert.equal(r.status, 200, r.text);
++  therapist = await srv.login('terapis1', 'Password-Terapis-1');
++  await post('/api/sv/services/1', { name: 'Fisioterapi' }, sv, 'PATCH');
++  await post('/api/sv/services/2', { name: 'Terapi Latihan' }, sv, 'PATCH');
++});
++after(async () => { await srv.stop(); amnan.close(); });
++
++test('hanya supervisor yang boleh membuka menu integrasi', async () => {
++  assert.equal((await srv.call('/api/sv/integration')).status, 401);
++  assert.equal((await srv.call('/api/sv/integration', { cookie: therapist.cookie })).status, 403);
++  const s = await state();
++  assert.equal(s.status, 'none');
++  assert.equal(s.connected, false);
++  assert.equal(s.amnan_can_read, true);
++});
++
++test('sambungan ditolak dengan pesan awam: kode asal, alamat http publik, kunci salah, izin kurang', async () => {
++  let r = await post('/api/sv/integration/connect', { code: 'halo dunia' });
++  assert.equal(r.status, 400);
++  assert.match(r.json.error, /tidak dikenali/);
++
++  r = await post('/api/sv/integration/connect', { code: KEY, url: 'http://contoh.com' });
++  assert.equal(r.status, 400);
++  assert.match(r.json.error, /https/);
++
++  r = await post('/api/sv/integration/connect', { code: KEY, url: 'http://127.0.0.1:1' });
++  assert.equal(r.status, 400);
++  assert.match(r.json.error, /tidak bisa dijangkau/);
++
++  r = await post('/api/sv/integration/connect', { code: 'amk_ab12cd34.' + 'y'.repeat(43), url: AMNAN_URL });
++  assert.equal(r.status, 400);
++  assert.match(r.json.error, /ditolak/);
++
++  fake.scopes = ['leads:write'];
++  r = await post('/api/sv/integration/connect', { code });
++  assert.equal(r.status, 400);
++  assert.match(r.json.error, /mencatat kunjungan/);
++  fake.scopes = ['leads:write', 'events:write', 'messages:send'];
++  assert.equal((await state()).connected, false, 'gagal menyambung tidak boleh menyimpan apa pun');
++});
++
++test('menyalakan sebelum tersambung ditolak', async () => {
++  const r = await post('/api/sv/integration', { enabled: true }, sv, 'PUT');
++  assert.equal(r.status, 409);
++});
++
++test('sambung lewat satu kode: alamat terisi dari kode, kunci tidak pernah kembali ke browser dan terenkripsi di database', async () => {
++  const r = await post('/api/sv/integration/connect', { code });
++  assert.equal(r.status, 200, r.text);
++  const s = r.json;
++  assert.equal(s.connected, true);
++  assert.equal(s.status, 'paused');
++  assert.equal(s.brand, 'Klinik Uji');
++  assert.equal(s.wa_status, 'connected');
++  assert.equal(s.url, AMNAN_URL);
++  assert.equal(s.key_hint, 'amk_ab12cd34.••••••••');
++  assert.ok(!r.text.includes('x'.repeat(20)), 'kunci bocor ke respons');
++
++  const db = new DatabaseSync(path.join(srv.dataDir, 'acesio.db'));
++  const dump = JSON.stringify(db.prepare('SELECT * FROM integration_settings').all()) + JSON.stringify(db.prepare('SELECT * FROM audit_log').all());
++  db.close();
++  assert.ok(!dump.includes('x'.repeat(20)), 'kunci tersimpan polos di database atau audit');
++  assert.ok(db && dump.includes('integration.connect'));
++});
++
++test('kunjungan terkirim ke Amnan: data pelanggan + catatan kejadian, tanpa catatan medis', async () => {
++  fake.seen.length = 0;
++  assert.equal((await post('/api/sv/integration', { enabled: true }, sv, 'PUT')).json.status, 'on');
++  const rmNo = await newCustomer();
++  const r = await visit(rmNo);
++  assert.equal(r.status, 200, r.text);
++
++  await waitFor(() => fake.seen.length >= 2);
++  const [put, ev] = fake.seen;
++  assert.equal(put.method, 'PUT');
++  assert.equal(put.path, '/api/v1/contacts/6281234567001');
++  assert.equal(put.body.name, 'Siti Aminah');
++  assert.equal(put.body.data.rmNo, rmNo);
++  assert.equal(put.body.data.visits, 1);
++  assert.equal(put.body.data.lastServices, 'Fisioterapi, Terapi Latihan');
++  assert.equal(ev.path, '/api/v1/events');
++  assert.equal(ev.body.type, 'acesio.visit_recorded');
++  assert.match(ev.body.summary, /Fisioterapi, Terapi Latihan/);
++  assert.ok(put.idem && ev.idem && put.idem !== ev.idem);
++  assert.ok(!JSON.stringify(fake.seen).includes(MEDICAL), 'catatan medis bocor ke Amnan');
++  assert.equal(fake.seen.length, 2, 'ucapan terima kasih mati secara bawaan');
++
++  const s = await waitFor(async () => { const x = await state(); return x.stats.sent_24h === 1 && x; });
++  assert.equal(s.stats.pending, 0);
++  assert.equal(s.recent[0].status, 'sent');
++});
++
++test('awalan kejadian mengikuti nama aplikasi pada kunci Amnan (menyesuaikan diri sekali)', async () => {
++  fake.seen.length = 0;
++  fake.slug = 'klinik';
++  await visit(await newCustomer({ phone: '0812-3456-7002', name: 'Budi' }));
++  await waitFor(() => fake.seen.filter((x) => x.path === '/api/v1/events').length >= 2);
++  const evs = fake.seen.filter((x) => x.path === '/api/v1/events');
++  assert.deepEqual(evs.map((e) => e.body.type), ['acesio.visit_recorded', 'klinik.visit_recorded']);
++  fake.seen.length = 0;
++  await visit(await newCustomer({ phone: '0812-3456-7003', name: 'Dewi' }));
++  await waitFor(() => fake.seen.length >= 2);
++  assert.deepEqual(fake.seen.filter((x) => x.path === '/api/v1/events').map((e) => e.body.type), ['klinik.visit_recorded']);
++});
++
++test('ucapan terima kasih: opsional, {nama} terisi, hanya sekali per pelanggan per hari', async () => {
++  fake.seen.length = 0;
++  let r = await post('/api/sv/integration', { send_thanks: true, thanks_text: 'Halo {nama}, terima kasih ya.' }, sv, 'PUT');
++  assert.equal(r.status, 200, r.text);
++  assert.equal(r.json.send_thanks, true);
++  const rmNo = await newCustomer({ phone: '0812-3456-7004', name: 'Rina' });
++  await visit(rmNo, [1]);
++  await visit(rmNo, [2]);
++  await waitFor(() => fake.seen.filter((x) => x.path === '/api/v1/events').length >= 2);
++  await new Promise((r2) => setTimeout(r2, 500));
++  const msgs = fake.seen.filter((x) => x.path === '/api/v1/messages');
++  assert.equal(msgs.length, 1);
++  assert.equal(msgs[0].body.text, 'Halo Rina, terima kasih ya.');
++  assert.equal(msgs[0].body.phone, '6281234567004');
++  await post('/api/sv/integration', { send_thanks: false }, sv, 'PUT');
++});
++
++test('Amnan mati: pencatatan tetap berhasil, kiriman menunggu lalu terkirim; gagal tetap bisa dikirim ulang', async () => {
++  fake.seen.length = 0;
++  fake.down = 1000;
++  const rmNo = await newCustomer({ phone: '0812-3456-7005', name: 'Agus' });
++  const r = await visit(rmNo);
++  assert.equal(r.status, 200, 'pencatatan layanan tidak boleh gagal karena Amnan mati');
++  const s = await waitFor(async () => { const x = await state(); return x.stats.pending === 1 && x.recent[0].error && x; });
++  assert.match(s.recent[0].error, /belum tersambung/);
++  fake.down = 0;
++
++  fake.rejectContacts = 1;
++  const rm2 = await newCustomer({ phone: '0812-3456-7006', name: 'Tono' });
++  await visit(rm2);
++  const failed = await waitFor(async () => { const x = await state(); return x.stats.failed === 1 && x; });
++  assert.equal(failed.status, 'problem');
++  assert.match(failed.recent.find((x) => x.status === 'failed').error, /tidak valid/);
++
++  const again = await post('/api/sv/integration/retry', {});
++  assert.equal(again.status, 200);
++  const ok = await waitFor(async () => { const x = await state(); return x.stats.failed === 0 && x.recent.find((i) => i.customer === 'Tono' && i.status === 'sent') && x; });
++  assert.equal(ok.status, 'on');
++});
++
++test('customer tanpa nomor WA dilewati dengan penjelasan', async () => {
++  fake.seen.length = 0;
++  const rmNo = await newCustomer({ phone: '', name: 'Tanpa Nomor' });
++  await visit(rmNo);
++  const s = await waitFor(async () => { const x = await state(); return x.recent.find((i) => i.customer === 'Tanpa Nomor') && x; });
++  const row = s.recent.find((i) => i.customer === 'Tanpa Nomor');
++  assert.equal(row.status, 'skipped');
++  assert.match(row.error, /nomor WA/);
++  assert.equal(fake.seen.length, 0);
++});
++
++test('dimatikan = tidak ada yang dikirim; putus = kunci terhapus', async () => {
++  await post('/api/sv/integration', { enabled: false }, sv, 'PUT');
++  fake.seen.length = 0;
++  await visit(await newCustomer({ phone: '0812-3456-7007', name: 'Mati' }));
++  await new Promise((r) => setTimeout(r, 700));
++  assert.equal(fake.seen.length, 0);
++
++  const r = await post('/api/sv/integration/disconnect', {});
++  assert.equal(r.json.status, 'none');
++  assert.equal(r.json.connected, false);
++  assert.equal(r.json.key_hint, '');
++});
++
++test('tes sambungan ulang melaporkan masalah dengan bahasa awam', async () => {
++  await post('/api/sv/integration/connect', { code });
++  fake.scopes = ['leads:write', 'events:write'];
++  const ok = await post('/api/sv/integration/test', {});
++  assert.equal(ok.json.test.ok, true);
++  assert.equal(ok.json.can_message, false);
++  const bad = await post('/api/sv/integration', { send_thanks: true }, sv, 'PUT');
++  assert.equal(bad.status, 400);
++  assert.match(bad.json.error, /mengirim pesan/);
++});

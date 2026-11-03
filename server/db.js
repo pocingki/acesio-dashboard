@@ -206,6 +206,32 @@ if (db.prepare('PRAGMA user_version').get().user_version < SCHEMA_VERSION) {
   db.exec(AUDIT_INDEXES);
 }
 
+// Integrasi ke Amnan (WhatsApp): pengaturan sederhana dan antrean kirim. Selalu IF NOT EXISTS,
+// jadi aman dijalankan berulang dan tidak mengubah nomor versi skema.
+db.exec(`
+CREATE TABLE IF NOT EXISTS integration_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS integration_outbox (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  uid TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  customer_id INTEGER,
+  day TEXT NOT NULL DEFAULT '',
+  phone TEXT NOT NULL DEFAULT '',
+  payload TEXT NOT NULL DEFAULT '{}',
+  thanks INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','failed','skipped')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_at INTEGER NOT NULL DEFAULT 0,
+  done_steps INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT NOT NULL DEFAULT '',
+  sent_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_outbox_due ON integration_outbox(status, next_at);
+`);
+
 // 29 kotak layanan tetap; supervisor mengubah nama dan fotonya.
 export const SERVICE_COUNT = 29;
 if (db.prepare('SELECT COUNT(*) AS n FROM services').get().n < SERVICE_COUNT) {

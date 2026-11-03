@@ -28,6 +28,7 @@ const ICONS = {
   logout: '<path d="M10 5H5v14h5M15 8l4 4-4 4M19 12H9"/>',
   edit: '<path d="M4 20l4-1 11-11-3-3L5 16l-1 4z"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  link: '<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/>',
   lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/>',
 };
 export function icon(name, size = 18) {

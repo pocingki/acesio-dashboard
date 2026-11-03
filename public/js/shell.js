@@ -47,7 +47,7 @@ export function openAccountModal(user) {
 // onSelect(id, main, ctx): ctx = { signal, isCurrent() } baru untuk SETIAP pergantian tab;
 // ctx tab sebelumnya otomatis dibatalkan. Tampilan async wajib memakai ctx.signal untuk fetch
 // dan mengecek ctx.isCurrent() sebelum menyentuh DOM.
-export function createShell({ user, tabs, onSelect, onLogout }) {
+export function createShell({ user, tabs, onSelect, onLogout, actions = [] }) {
   disposeActiveShell();
   const tabButtons = new Map();
   const nav = h('nav', { class: 'tabs', 'aria-label': 'Menu utama' });
@@ -62,6 +62,7 @@ export function createShell({ user, tabs, onSelect, onLogout }) {
       brand(),
       nav,
       h('div', { class: 'topbar__user' },
+        ...actions,
         h('button', { class: 'userbtn', type: 'button', title: `${ROLE_LABEL[user.role]} · ganti password`, onclick: () => openAccountModal(user) }, user.name),
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Keluar', title: 'Keluar', onclick: onLogout }, icon('logout', 20)))));
   const el = h('div', null, header, main);

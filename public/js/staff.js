@@ -9,6 +9,7 @@ import {
   customersView, createGate, downloadButton, tableWrap, pagerNodes, rangeLabel, NO_CTX,
 } from './customers.js';
 import { auditView } from './audit.js';
+import { integrationButton } from './integration.js';
 import { groupRecords, customerGroups } from './groups.js';
 
 const isAbort = (e) => e?.name === 'AbortError';
@@ -20,6 +21,7 @@ export function renderStaffApp(root, user, { onLogout }) {
   if (sv) tabs.push({ id: 'services', label: 'Pengaturan Layanan' }, { id: 'accounts', label: 'Akun User' }, { id: 'audit', label: 'Log Audit' });
   const shell = createShell({
     user, onLogout, tabs,
+    actions: sv ? [integrationButton()] : [],
     // ctx = { signal, isCurrent() } dari shell.select; NO_CTX hanya cadangan bila shell lama.
     onSelect: (id, main, ctx) => {
       const c = ctx || NO_CTX;

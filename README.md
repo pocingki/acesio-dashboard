@@ -115,6 +115,22 @@ curl -X POST -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
 
 Idempotensi bot memakai `request_id` di body, atau header `Idempotency-Key` yang sama dengan endpoint web. Data bot ditandai "via WA bot" di laporan. Bot **tidak membuat customer baru**: No RM tidak ada = 404. Input ditolak (409) bila hari itu sudah di-approve.
 
+## Integrasi WhatsApp (Amnan)
+
+Khusus supervisor: tombol **Integrasi** di pojok kanan atas membuka panel samping dengan 3 langkah.
+
+1. **Sambungkan**: tempel *kode sambungan* dari admin Amnan (alamat Amnan terisi otomatis) lalu tekan Sambungkan.
+2. **Pilih yang dikirim**: *Catat kunjungan* (nama, No RM, kunjungan ke-berapa, layanan) dan, bila mau, *ucapan terima kasih* via WhatsApp (maksimal sekali sehari per pelanggan).
+3. **Nyalakan**: hanya kunjungan yang dicatat setelah dinyalakan yang dikirim.
+
+Catatan teknis:
+- Kiriman masuk antrean (`integration_outbox`) di transaksi yang sama dengan pencatatan layanan, lalu dikirim latar belakang. Amnan mati tidak menggagalkan pencatatan; kiriman diulang otomatis (30 dtk, 2 mnt, 10 mnt, 1 jam, 6 jam) dan yang gagal bisa dikirim ulang dari panel.
+- Catatan Medis, komisi, dan data terapis tidak pernah dikirim.
+- Kunci akses disimpan terenkripsi (AES-256-GCM); kunci enkripsinya ada di `DATA_DIR/integration.key`, **ikut dibackup terpisah dari `acesio.db`**. Bila hilang, cukup sambungkan ulang.
+- `http://` hanya diizinkan untuk server yang sama (127.0.0.1 / jaringan privat); selain itu wajib `https://`.
+- Kejadian dikirim sebagai `<app>.visit_recorded`; awalan `<app>` menyesuaikan otomatis dengan nama aplikasi pada kunci Amnan.
+- Arah sebaliknya (Amnan membaca data customer Acesio) memakai `BOT_API_KEY`, lihat bagian *Integrasi WA bot*.
+
 ## Keamanan (ringkas)
 
 Rincian ada di [SECURITY.md](SECURITY.md).

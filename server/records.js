@@ -3,6 +3,7 @@ import { db, tx } from './db.js';
 import { HttpError } from './util.js';
 import { ymd } from './clock.js';
 import { logAudit } from './audit.js';
+import { enqueueVisit } from './integration.js';
 
 const nowIso = () => new Date().toISOString();
 
@@ -32,6 +33,8 @@ export function createRecords({ userId, customer, serviceIds, source, note }) {
       if (!svc.get(id)) throw new HttpError(400, 'Ada layanan yang tidak ditemukan');
       ins.run(userId, customer.id, id, price.get(userId, id)?.amount ?? 0, source, when, day, String(note || ''), batch);
     }
+    // Antrean ke Amnan ikut transaksi ini; tidak pernah melempar error dan tidak menunggu jaringan.
+    enqueueVisit({ customer, serviceIds, day });
     return serviceIds.length;
   });
 }

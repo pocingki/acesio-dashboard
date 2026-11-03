@@ -18,6 +18,10 @@ export const ACTION_LABEL = {
   'customer.create': ['Tambah customer', 'ok'],
   'customer.update': ['Ubah customer', ''],
   'auth.password_change': ['Ganti password', 'wait'],
+  'integration.connect': ['Sambung WhatsApp', 'ok'],
+  'integration.update': ['Ubah integrasi', ''],
+  'integration.retry': ['Kirim ulang integrasi', ''],
+  'integration.disconnect': ['Putus WhatsApp', 'late'],
 };
 export const actionLabel = (a) => ACTION_LABEL[a]?.[0] || String(a || '–');
 
