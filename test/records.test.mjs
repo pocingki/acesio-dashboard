@@ -1,4 +1,5 @@
 // Tes Akun 4: hapus data (aturan hari), idempotensi POST /api/records, migrasi DB v3 -> v4.
+// Fase 4: POST /api/records kini wajib lewat jadwal (schedule_id + soap); jadwal dibuat lewat API staff.
 // Berdiri sendiri: menjalankan server sungguhan (PORT=0, DATA_DIR sementara) lewat child_process
 // dan mengisi data lewat node:sqlite. Jika test/helpers.mjs (Akun 1) sudah menyediakan starter server,
 // bagian startServer() di bawah boleh diganti dengan itu.
@@ -11,6 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { VALID_SOAP } from './helpers.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TZ = 'Asia/Jakarta';
@@ -31,7 +33,7 @@ function startServer(dir) {
   return new Promise((resolve, reject) => {
     const p = spawn(process.execPath, ['--no-warnings', 'server/index.js'], {
       cwd: root,
-      env: { ...process.env, PORT: '0', HOST: '127.0.0.1', DATA_DIR: dir, APP_TZ: TZ, ADMIN_USERNAME: 'sv', ADMIN_PASSWORD: PASS, BOT_API_KEY: '' },
+      env: { ...process.env, PORT: '0', HOST: '127.0.0.1', DATA_DIR: dir, APP_TZ: TZ, ACCESS_HOURS: 'off', ADMIN_USERNAME: 'sv', ADMIN_PASSWORD: PASS, BOT_API_KEY: '' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';
@@ -83,11 +85,12 @@ before(async () => {
     .run(u, `Nama ${u}`, scryptHash(PASS), role, 'tetap', now).lastInsertRowid);
   ids.ua = mkUser('ua', 'user');
   ids.ub = mkUser('ub', 'user');
+  ids.uc = mkUser('uc', 'user');
   ids.adm = mkUser('adm', 'admin');
   ids.sv = sdb.prepare("SELECT id FROM users WHERE username = 'sv'").get().id;
   ids.cust = Number(sdb.prepare("INSERT INTO customers (rm_no, name, phone, origin, created_at) VALUES ('RM-1', 'Budi Test', '628111111111', 'awal', ?)").run(now).lastInsertRowid);
   sdb.prepare('INSERT INTO user_commissions (user_id, service_id, amount) VALUES (?, 1, 7000)').run(ids.ua);
-  for (const u of ['ua', 'ub', 'adm', 'sv']) await login(u);
+  for (const u of ['ua', 'ub', 'uc', 'adm', 'sv']) await login(u);
 });
 
 after(() => {
@@ -160,47 +163,59 @@ test('supervisor menghapus data lama (bahkan yang sudah di-approve): 200 dan ter
   assert.deepEqual(JSON.parse(a.detail), { user_id: ids.ua, customer_id: ids.cust, service_id: 1, commission: 9000, day: old });
 });
 
-const post = (who, key, extra = {}) => api(who, 'POST', '/api/records', {
-  body: { customer_rm: 'RM-1', service_ids: [1, 2], ...extra },
+// Jadwal hari ini dibuat supervisor lewat API staff; layanan ditentukan di jadwal (bukan di POST /api/records).
+const mkVisit = async (userId, serviceIds = [1, 2]) => {
+  const r = await api('sv', 'POST', '/api/staff/schedules', {
+    body: { user_id: userId, customer_rm: 'RM-1', service_ids: serviceIds, day: TODAY, start_time: '09:00' },
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  return r.json.schedule.id;
+};
+const post = (who, key, scheduleId, extra = {}) => api(who, 'POST', '/api/records', {
+  body: { schedule_id: scheduleId, soap: VALID_SOAP, ...extra },
   headers: key ? { 'Idempotency-Key': key } : {},
 });
-const nRecords = () => count("SELECT COUNT(*) AS n FROM records WHERE user_id = ? AND day = ? AND source = 'web'", ids.ua, TODAY);
+const nRecordsOf = (userId) => count("SELECT COUNT(*) AS n FROM records WHERE user_id = ? AND day = ? AND source = 'web'", userId, TODAY);
+const nRecords = () => nRecordsOf(ids.ua);
+const statusOf = (sid) => sdb.prepare('SELECT status FROM schedules WHERE id = ?').get(sid).status;
 
 test('dua POST dengan key sama: 1 kunjungan, respons sama, ada header Idempotent-Replay', async () => {
   const before = nRecords();
-  const a = await post('ua', 'key-satu-aaaa');
-  const b = await post('ua', 'key-satu-aaaa');
+  const sid = await mkVisit(ids.ua);
+  const a = await post('ua', 'key-satu-aaaa', sid);
+  const b = await post('ua', 'key-satu-aaaa', sid);
   assert.equal(a.status, 200);
   assert.equal(b.status, a.status);
   assert.deepEqual(b.json, a.json);
   assert.equal(a.headers.get('idempotent-replay'), null);
   assert.equal(b.headers.get('idempotent-replay'), 'true');
-  assert.equal(nRecords() - before, 2, 'hanya 2 baris (2 layanan) dibuat, bukan 4');
+  assert.equal(nRecords() - before, 2, 'hanya 2 baris (2 layanan jadwal) dibuat, bukan 4');
   assert.equal(count('SELECT COUNT(*) AS n FROM idempotency_keys WHERE user_id = ? AND key = ?', ids.ua, 'key-satu-aaaa'), 1);
 });
 
-test('key berbeda dan tanpa key: masing-masing membuat data baru', async () => {
+test('key berbeda dan tanpa key: masing-masing (jadwal berbeda) membuat data baru', async () => {
   const before = nRecords();
-  assert.equal((await post('ua', 'key-beda-0001')).status, 200);
-  assert.equal((await post('ua', 'key-beda-0002')).status, 200);
+  assert.equal((await post('ua', 'key-beda-0001', await mkVisit(ids.ua))).status, 200);
+  assert.equal((await post('ua', 'key-beda-0002', await mkVisit(ids.ua))).status, 200);
   assert.equal(nRecords() - before, 4);
-  assert.equal((await post('ua', null)).status, 200);
-  assert.equal((await post('ua', null)).status, 200);
+  assert.equal((await post('ua', null, await mkVisit(ids.ua))).status, 200);
+  assert.equal((await post('ua', null, await mkVisit(ids.ua))).status, 200);
   assert.equal(nRecords() - before, 8);
 });
 
 test('key yang sama dipakai user lain tidak dianggap replay', async () => {
-  const a = await post('ub', 'key-dipakai-bersama');
+  const a = await post('ub', 'key-dipakai-bersama', await mkVisit(ids.ub));
   // ub hari ini sudah di-approve (tes sebelumnya) -> 409; pakai ua untuk membuktikan keterpisahan
   assert.ok([200, 409].includes(a.status));
-  const b = await post('ua', 'key-dipakai-bersama');
+  const b = await post('ua', 'key-dipakai-bersama', await mkVisit(ids.ua));
   assert.equal(b.status, 200);
   assert.equal(b.headers.get('idempotent-replay'), null);
 });
 
 test('10 POST paralel dengan key sama: tepat 1 kunjungan', async () => {
   const before = nRecords();
-  const rs = await Promise.all(Array.from({ length: 10 }, () => post('ua', 'key-paralel-xyz')));
+  const sid = await mkVisit(ids.ua);
+  const rs = await Promise.all(Array.from({ length: 10 }, () => post('ua', 'key-paralel-xyz', sid)));
   assert.ok(rs.every((r) => r.status === 200));
   assert.equal(rs.filter((r) => r.headers.get('idempotent-replay') === null).length, 1);
   assert.equal(rs.filter((r) => r.headers.get('idempotent-replay') === 'true').length, 9);
@@ -208,25 +223,33 @@ test('10 POST paralel dengan key sama: tepat 1 kunjungan', async () => {
   assert.equal(new Set(rs.map((r) => JSON.stringify(r.json))).size, 1);
 });
 
-test('key tidak valid: 400 dan tidak ada data dibuat', async () => {
+test('key tidak valid: 400, tidak ada data dibuat, jadwal tetap belum selesai', async () => {
   const before = nRecords();
+  const sid = await mkVisit(ids.ua);
   for (const k of ['pendek', 'x'.repeat(101), 'ada spasi di sini', 'tanda/miring-aaaa', "kutip'aaaaaaaa"]) {
-    const r = await post('ua', k);
+    const r = await post('ua', k, sid);
     assert.equal(r.status, 400, `key "${k}"`);
   }
   assert.equal(nRecords(), before);
+  assert.equal(statusOf(sid), 'baru');
 });
 
-test('gagal di tengah (layanan tidak ada): tidak ada record, key tidak tersimpan, key bisa dipakai ulang', async () => {
-  const before = nRecords();
-  const bad = await post('ua', 'key-gagal-0001', { service_ids: [1, 9999] });
-  assert.equal(bad.status, 400);
-  assert.equal(nRecords(), before, 'layanan 1 tidak boleh tertinggal');
+test('gagal di tengah (hari sudah di-approve): tidak ada record, jadwal tetap baru, key tidak tersimpan dan bisa dipakai ulang', async () => {
+  // Pengganti tes lama "layanan tidak ada": layanan kini ditentukan jadwal, jadi kegagalan dipicu aturan hari terkunci.
+  const before = nRecordsOf(ids.uc);
+  const sid = await mkVisit(ids.uc, [1, 2, 3]);
+  sdb.prepare('INSERT INTO day_reviews (user_id, day, late, reviewed_by, reviewed_at) VALUES (?, ?, 0, ?, ?)').run(ids.uc, TODAY, ids.sv, new Date().toISOString());
+  const bad = await post('uc', 'key-gagal-0001', sid);
+  assert.equal(bad.status, 409);
+  assert.equal(nRecordsOf(ids.uc), before, 'tidak boleh ada record yang tertinggal');
+  assert.equal(statusOf(sid), 'baru');
   assert.equal(count('SELECT COUNT(*) AS n FROM idempotency_keys WHERE key = ?', 'key-gagal-0001'), 0);
-  const ok = await post('ua', 'key-gagal-0001', { service_ids: [1] });
+  sdb.prepare('DELETE FROM day_reviews WHERE user_id = ? AND day = ?').run(ids.uc, TODAY);
+  const ok = await post('uc', 'key-gagal-0001', sid);
   assert.equal(ok.status, 200);
   assert.equal(ok.headers.get('idempotent-replay'), null);
-  assert.equal(nRecords() - before, 1);
+  assert.equal(nRecordsOf(ids.uc) - before, 3);
+  assert.equal(statusOf(sid), 'selesai');
 });
 
 test('entri idempotensi lebih dari 24 jam dibersihkan saat start', async () => {

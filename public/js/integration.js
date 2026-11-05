@@ -1,11 +1,11 @@
-// Menu samping "Integrasi" (khusus supervisor): hubungkan Acesio ke WhatsApp lewat Amnan dalam 3 langkah.
+// Menu samping "Integrasi" (khusus supervisor): hubungkan Acesio ke WhatsApp dalam 3 langkah.
 // Bahasa sengaja awam: tidak ada istilah teknis (API, webhook, token) di layar utama.
 import { api } from './api.js';
 import { h, icon, openModal, toast, confirmDialog, fmtDate } from './ui.js';
 
 // ---------- fungsi murni (diekspor untuk tes) ----------
 
-// "AMN1.<base64url JSON>" -> alamat Amnan di dalam kode, atau '' bila bukan kode sambungan.
+// "AMN1.<base64url JSON>" -> alamat server WhatsApp di dalam kode, atau '' bila bukan kode sambungan.
 export function urlFromCode(raw) {
   const s = String(raw || '').trim().replace(/\s+/g, '');
   if (!/^AMN1\./i.test(s)) return '';
@@ -43,10 +43,10 @@ export function statusInfo(s, now = Date.now()) {
 }
 
 const WA_TEXT = {
-  connected: ['ok', 'WhatsApp di Amnan tersambung'],
-  qr: ['wait', 'WhatsApp di Amnan menunggu pindai QR'],
-  connecting: ['wait', 'WhatsApp di Amnan sedang menyambung'],
-  disconnected: ['bad', 'WhatsApp di Amnan belum tersambung. Buka Amnan dan pindai QR.'],
+  connected: ['ok', 'WhatsApp tersambung'],
+  qr: ['wait', 'WhatsApp menunggu pindai QR'],
+  connecting: ['wait', 'WhatsApp sedang menyambung'],
+  disconnected: ['bad', 'WhatsApp belum tersambung. Pindai kode QR di pengelola WhatsApp Anda.'],
 };
 export const waText = (st) => WA_TEXT[st] || ['wait', 'Status WhatsApp belum diketahui'];
 
@@ -56,19 +56,15 @@ const ITEM_LABEL = { sent: ['ok', 'Terkirim'], pending: ['wait', 'Menunggu'], fa
 
 const DOT_LABEL = { none: 'belum tersambung', paused: 'tersambung, belum dinyalakan', on: 'berjalan', problem: 'perlu perhatian' };
 
-export function integrationButton() {
-  const dot = h('span', { class: 'intg-dot', 'data-status': 'none', 'aria-hidden': 'true' });
-  const sr = h('span', { class: 'sr-only' }, '');
-  const btn = h('button', { class: 'intg-btn', type: 'button', onclick: () => openIntegrationDrawer(setDot) },
-    icon('link', 18), h('span', null, 'Integrasi'), dot, sr);
-  function setDot(s) {
-    const st = s?.status || 'none';
-    dot.dataset.status = st;
-    sr.textContent = ` (${DOT_LABEL[st] || ''})`;
-    btn.title = `Integrasi WhatsApp: ${DOT_LABEL[st] || ''}`;
-  }
-  api('/api/sv/integration').then(setDot).catch(() => { /* titik tetap abu-abu */ });
-  return btn;
+// Item untuk dropdown Pengaturan (lihat createShell): membuka panel Integrasi dan menampilkan titik status.
+export function integrationItem() {
+  return {
+    key: 'integration',
+    label: 'Integrasi',
+    desc: 'Koneksi WhatsApp',
+    init: (set) => { api('/api/sv/integration').then(set).catch(() => { /* titik tetap abu-abu */ }); },
+    onClick: (set) => openIntegrationDrawer(set),
+  };
 }
 
 // ---------- panel samping ----------
@@ -125,8 +121,8 @@ export function openIntegrationDrawer(onState) {
     const live = s.status === 'on';
     const node = (name, sub) => h('div', { class: 'intg-node' }, h('b', null, name), h('span', null, sub));
     const arrow = h('div', { class: `intg-arrow${live ? ' is-live' : ''}`, 'aria-hidden': 'true' }, h('span', null, 'otomatis'));
-    return h('div', { class: 'intg-flow', role: 'img', 'aria-label': 'Terapis mencatat layanan di Acesio, otomatis diteruskan ke Amnan, lalu tampil di chat WhatsApp pelanggan' },
-      node('Acesio', 'Terapis mencatat layanan'), arrow, node('Amnan', 'Pusat chat WhatsApp'), arrow.cloneNode(true), node('Pelanggan', 'Riwayat kunjungan tampil di chat'));
+    return h('div', { class: 'intg-flow', role: 'img', 'aria-label': 'Terapis mencatat layanan di Acesio, otomatis diteruskan ke WhatsApp, lalu tampil di chat pelanggan' },
+      node('Acesio', 'Terapis mencatat layanan'), arrow, node('WhatsApp', 'Pesan ke pelanggan'), arrow.cloneNode(true), node('Pelanggan', 'Riwayat kunjungan tampil di chat'));
   }
 
   function banner(s) {
@@ -140,7 +136,7 @@ export function openIntegrationDrawer(onState) {
   }
 
   function connectForm() {
-    const code = h('textarea', { class: 'textarea', id: 'intg-code', rows: 2, spellcheck: 'false', autocomplete: 'off', placeholder: 'Tempel kode dari Amnan di sini' });
+    const code = h('textarea', { class: 'textarea', id: 'intg-code', rows: 2, spellcheck: 'false', autocomplete: 'off', placeholder: 'Tempel kode sambungan WhatsApp di sini' });
     const url = h('input', { class: 'input', id: 'intg-url', type: 'url', autocomplete: 'off', placeholder: 'https://wa.klinikanda.id' });
     const err = h('p', { class: 'error', role: 'alert' });
     const go = h('button', { class: 'btn btn--primary', type: 'submit' }, 'Sambungkan');
@@ -151,9 +147,9 @@ export function openIntegrationDrawer(onState) {
     url.addEventListener('input', () => { url.dataset.touched = '1'; });
     const form = h('form', { novalidate: true },
       h('div', { class: 'field' }, h('label', { for: 'intg-code' }, 'Kode sambungan'), code,
-        h('p', { class: 'hint' }, 'Minta ke admin Amnan (menu Integrasi). Kodenya diawali AMN1. atau amk_.')),
-      h('div', { class: 'field' }, h('label', { for: 'intg-url' }, 'Alamat Amnan'), url,
-        h('p', { class: 'hint' }, 'Terisi otomatis dari kode. Kalau Amnan ada di server yang sama dengan Acesio, isi http://127.0.0.1:8080')),
+        h('p', { class: 'hint' }, 'Minta ke admin WhatsApp Anda (menu Integrasi). Kodenya diawali AMN1. atau amk_.')),
+      h('div', { class: 'field' }, h('label', { for: 'intg-url' }, 'Alamat server WhatsApp'), url,
+        h('p', { class: 'hint' }, 'Terisi otomatis dari kode. Kalau server WhatsApp ada di server yang sama dengan Acesio, isi http://127.0.0.1:8080')),
       err, go);
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -166,7 +162,7 @@ export function openIntegrationDrawer(onState) {
         current = s;
         if (onState) onState(s);
         render(s);
-        toast('Tersambung ke Amnan');
+        toast('Tersambung ke WhatsApp');
       } catch (ex) {
         if (!ex.aborted) err.textContent = ex.message;
         go.disabled = false;
@@ -191,7 +187,7 @@ export function openIntegrationDrawer(onState) {
           return r;
         }) }, 'Tes sambungan'),
         h('button', { class: 'btn btn--sm btn--danger', type: 'button', onclick: async () => {
-          if (!(await confirmDialog('Putuskan sambungan ke Amnan? Kunjungan berikutnya tidak akan dikirim, dan kiriman yang masih menunggu dibatalkan.', { confirmText: 'Ya, putuskan', danger: true }))) return;
+          if (!(await confirmDialog('Putuskan sambungan ke WhatsApp? Kunjungan berikutnya tidak akan dikirim, dan kiriman yang masih menunggu dibatalkan.', { confirmText: 'Ya, putuskan', danger: true }))) return;
           run(() => api('/api/sv/integration/disconnect', { method: 'POST' }), { ok: 'Sambungan diputus' });
         } }, 'Putuskan')));
   }
@@ -203,14 +199,14 @@ export function openIntegrationDrawer(onState) {
       h('p', { class: 'hint' }, 'Pilihan bawaan sudah cocok untuk kebanyakan klinik. Boleh langsung lanjut ke langkah 3.'),
       toggle({
         id: 'intg-visit', label: 'Catat kunjungan di chat WhatsApp', on: s.send_visit,
-        desc: 'Setiap layanan yang dicatat terapis ikut tampil di profil pelanggan di Amnan: nama, No RM, kunjungan ke-berapa, dan layanannya. Catatan Medis dan komisi tidak pernah dikirim.',
+        desc: 'Setiap layanan yang dicatat terapis ikut tampil di profil pelanggan WhatsApp: nama, No RM, kunjungan ke-berapa, dan layanannya. SOAP dan komisi tidak pernah dikirim.',
         onChange: (on) => run(() => put({ send_visit: on, ...(on ? {} : { send_thanks: false }) })),
       }),
       toggle({
         id: 'intg-thanks-sw', label: 'Kirim ucapan terima kasih', on: s.send_thanks, disabled: !s.send_visit || !s.can_message,
         desc: s.can_message
           ? 'Pesan WhatsApp otomatis, paling banyak sekali sehari per pelanggan. Nyalakan hanya bila pelanggan setuju menerima pesan.'
-          : 'Kunci akses ini belum boleh mengirim pesan WhatsApp. Minta admin Amnan menambah izinnya, lalu tekan "Tes sambungan".',
+          : 'Kunci akses ini belum boleh mengirim pesan WhatsApp. Minta admin WhatsApp Anda menambah izinnya, lalu tekan "Tes sambungan".',
         onChange: (on) => run(() => put({ send_thanks: on })),
       }),
       s.send_thanks ? h('div', { class: 'field intg-thanks' }, h('label', { for: 'intg-thanks' }, 'Isi ucapan'), text,
@@ -222,7 +218,7 @@ export function openIntegrationDrawer(onState) {
       toggle({
         id: 'intg-on', label: s.enabled ? 'Integrasi menyala' : 'Integrasi mati', on: s.enabled, disabled: !s.send_visit && !s.enabled,
         desc: s.enabled
-          ? 'Kunjungan yang dicatat mulai sekarang langsung dikirim ke Amnan.'
+          ? 'Kunjungan yang dicatat mulai sekarang langsung dikirim ke WhatsApp.'
           : (s.send_visit ? 'Hanya kunjungan yang dicatat SETELAH dinyalakan yang dikirim. Data lama tidak ikut.' : 'Nyalakan "Catat kunjungan" di langkah 2 dulu.'),
         onChange: (on) => run(() => put({ enabled: on }), { ok: on ? 'Integrasi dinyalakan' : 'Integrasi dimatikan' }),
       }));
@@ -245,8 +241,8 @@ export function openIntegrationDrawer(onState) {
       h('ul', { class: 'intg-list' }, items),
       h('details', { class: 'intg-tech' }, h('summary', null, 'Info teknis'),
         h('p', { class: 'hint' }, s.amnan_can_read
-          ? 'Arah sebaliknya (Amnan membaca data customer Acesio) sudah bisa dipakai: kunci server (BOT_API_KEY) aktif.'
-          : 'Arah sebaliknya (Amnan membaca data customer Acesio) belum aktif: isi BOT_API_KEY di berkas .env server.')));
+          ? 'Arah sebaliknya (server WhatsApp membaca data customer Acesio) sudah bisa dipakai: kunci server (BOT_API_KEY) aktif.'
+          : 'Arah sebaliknya (server WhatsApp membaca data customer Acesio) belum aktif: isi BOT_API_KEY di berkas .env server.')));
   }
 
   // Ringkasan 3 langkah sekali lihat; langkah aktif = yang pertama belum selesai.
@@ -267,7 +263,7 @@ export function openIntegrationDrawer(onState) {
       banner(s),
       progress(s),
       h('ol', { class: 'intg-steps' },
-        step({ n: 1, title: 'Sambungkan ke Amnan', done: x, children: x ? connectedView(s) : connectForm() }),
+        step({ n: 1, title: 'Sambungkan ke WhatsApp', done: x, children: x ? connectedView(s) : connectForm() }),
         step({ n: 2, title: 'Pilih yang dikirim', done: false, locked: !x, children: x ? chooseView(s) : [h('p', { class: 'hint' }, 'Muncul setelah tersambung.')] }),
         step({ n: 3, title: 'Nyalakan', done: s.enabled, locked: !x, children: x ? switchOnView(s) : [h('p', { class: 'hint' }, 'Muncul setelah tersambung.')] })),
       x ? activity(s) : null);

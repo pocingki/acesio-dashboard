@@ -31,12 +31,6 @@ function orConflict(fn, message = DUP_RM) {
   }
 }
 
-function readOrigin(body) {
-  if (body.origin === undefined || body.origin === null || body.origin === '') return null;
-  if (body.origin !== 'awal' && body.origin !== 'baru') throw new HttpError(400, 'Asal data harus "awal" atau "baru"');
-  return body.origin;
-}
-
 // No WA ikut dicari hanya bila q murni angka (>= 3 digit), sama dengan pencarian riwayat user.
 function customerFilter(query) {
   const q = cleanQ(query.q);
@@ -67,7 +61,7 @@ add('GET', '/api/staff/customers', 'staff', ({ query }) => {
   return { customers, total, page, page_size: PAGE_SIZE, offset };
 });
 
-// Tarik data: kolom sama persis dengan tabel Customer (No | No RM | Reimburse | Nama | ... | Referensi | Catatan Medis).
+// Tarik data: kolom sama persis dengan tabel Customer (No | No RM | Reimburse | Nama | ... | Referensi | SOAP).
 add('GET', '/api/staff/customers/export', 'staff', ({ query, res }) => {
   const format = readFormat(query);
   const { where, args } = customerFilter(query);
@@ -120,8 +114,9 @@ const customerBody = (body) => {
 
 add('POST', '/api/staff/customers', 'staff', ({ req, user, body }) => {
   const value = customerBody(body);
-  // 'baru' = customer baru yang dilaporkan user; 'awal' = tambahan untuk data awal.
-  const origin = readOrigin(body) || 'baru';
+  // Data awal masuk lewat Upload (origin 'awal'). Customer yang ditambahkan lewat form ini sudah
+  // setelah data awal ada, jadi selalu 'baru'. Isian origin dari klien diabaikan.
+  const origin = 'baru';
   const id = orConflict(() => tx(() => {
     if (findByRm(value.rm_no)) throw new HttpError(409, DUP_RM);
     return insertCustomer(value, origin);
@@ -142,15 +137,12 @@ add('PATCH', '/api/staff/customers/:id', 'staff', ({ req, user, params, body }) 
   const before = db.prepare('SELECT * FROM customers WHERE id = ?').get(id);
   if (!before) throw new HttpError(404, 'Customer tidak ditemukan');
   const value = customerBody(body);
-  const origin = readOrigin(body);
   orConflict(() => tx(() => {
     if (db.prepare('SELECT 1 FROM customers WHERE rm_no = ? AND id <> ?').get(value.rm_no, id)) throw new HttpError(409, DUP_RM);
     updateCustomer(id, value);
-    if (origin) db.prepare('UPDATE customers SET origin = ? WHERE id = ?').run(origin, id);
   }));
   // Hanya nama kolom yang berubah yang dicatat, bukan isinya (data pribadi customer).
   const fields = FIELDS.filter((f) => String(before[f] ?? '') !== String(value[f] ?? ''));
-  if (origin && origin !== before.origin) fields.push('origin');
   logAudit({
     actor: { id: user.id, name: user.name },
     action: 'customer.update',

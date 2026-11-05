@@ -323,7 +323,16 @@ test('seed di database kosong: password acak per eksekusi (bukan demo12345) dan 
       assert.ok(await verifyPassword(p1, row.password_hash), `password ${u}`);
       assert.ok(!(await verifyPassword('demo12345', row.password_hash)));
     }
-    assert.equal(seeded.prepare('SELECT COUNT(*) AS n FROM records').get().n, 40);
+    // 40 record acak + satu record per layanan pada jadwal demo yang diselesaikan seed (terhubung lewat schedules.batch).
+    const viaJadwal = seeded.prepare("SELECT COUNT(*) AS n FROM records WHERE batch IN (SELECT batch FROM schedules WHERE batch <> '')").get().n;
+    assert.ok(viaJadwal >= 1, 'jadwal selesai demo harus punya record');
+    assert.equal(seeded.prepare('SELECT COUNT(*) AS n FROM records').get().n, 40 + viaJadwal);
+    const sch = seeded.prepare('SELECT status, COUNT(*) AS n FROM schedules GROUP BY status').all();
+    const byStatus = Object.fromEntries(sch.map((r) => [r.status, r.n]));
+    assert.ok(byStatus.baru && byStatus.berjalan && byStatus.selesai && byStatus.batal, `jadwal demo harus campuran status: ${JSON.stringify(byStatus)}`);
+    assert.equal(seeded.prepare("SELECT COUNT(*) AS n FROM schedules WHERE status = 'selesai' AND soap_s <> '' AND soap_o <> '' AND soap_a <> '' AND soap_p <> ''").get().n, byStatus.selesai, 'jadwal selesai demo lengkap dengan SOAP');
+    assert.equal(seeded.prepare('SELECT COUNT(*) AS n FROM schedules s WHERE NOT EXISTS (SELECT 1 FROM schedule_services x WHERE x.schedule_id = s.id)').get().n, 0, 'setiap jadwal punya layanan');
+    assert.ok(seeded.prepare('SELECT COUNT(*) AS n FROM notifications').get().n >= sch.length, 'notifikasi awal dibuat');
   } finally { seeded.close(); }
 });
 

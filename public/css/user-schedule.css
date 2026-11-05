@@ -1,0 +1,68 @@
+/* Tab "Jadwal Saya" (user). Hanya variabel dari app.css; prioritas ponsel 375px. */
+.us { max-width: 760px; margin: 0 auto; }
+.us-head h1 { margin: 0 0 6px; font-size: 26px; }
+.us-headrow { display: flex; align-items: center; gap: 4px; min-height: 44px; }
+.us-nav { flex: none; }
+.us-nav--prev svg { transform: rotate(90deg); }
+.us-nav--next svg { transform: rotate(-90deg); }
+.us-day { margin: 0; flex: 1; font-size: 17px; font-weight: 700; color: var(--blue-900); }
+.us-sum { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 2px 0 0; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+.us-sum b { color: var(--ink); }
+
+.us-filters { margin: 16px 0 8px; padding: 12px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
+.us-quicks { display: flex; flex-wrap: wrap; gap: 8px; }
+.us-quick { flex: 1 1 auto; }
+.us-dates { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 12px; }
+.us-date { display: grid; gap: 4px; min-width: 0; }
+.us-date .input { min-width: 0; padding: 0 8px; }
+.us-date label { font-size: 13px; font-weight: 600; color: var(--muted); }
+.us-range-msg { margin: 6px 0 0; min-height: 0; }
+.us-range-msg:empty { display: none; }
+
+.us-body { margin-top: 12px; }
+.us-loading { padding: 32px 0; text-align: center; }
+.us-empty { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 40px 20px; }
+.us-retry { margin-top: 14px; }
+.us-note { margin: 12px 0 0; font-size: 13px; text-align: center; }
+
+.us-group + .us-group { margin-top: 20px; }
+.us-group__title { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 14px; font-weight: 700; color: var(--muted); }
+.us-group__tag { padding: 1px 8px; border-radius: 999px; background: var(--blue-100); color: var(--blue-800); font-size: 12px; }
+.us-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+
+.us-item { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; width: 100%; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 12px; }
+.us-item:focus-visible { outline: 3px solid rgba(26, 80, 212, .45); outline-offset: 2px; }
+.us-time { display: flex; flex-direction: column; align-items: flex-end; padding-top: 14px; font-variant-numeric: tabular-nums; }
+.us-time__start { font-weight: 700; font-size: 16px; }
+.us-time__end { font-size: 12px; color: var(--muted); }
+.us-card { display: grid; gap: 4px; min-width: 0; padding: 12px 14px; background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--blue-500); border-radius: 12px; transition: border-color .15s, background .15s; }
+.us-item:hover:not(:disabled) .us-card { background: var(--blue-50); border-color: var(--blue-200); }
+.us-item:active:not(:disabled) .us-card { background: var(--blue-100); }
+.us-item[aria-busy="true"] .us-card { opacity: .6; }
+.us-card__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.us-card__name { font-weight: 700; overflow-wrap: anywhere; }
+.us-card__top .pill { flex: none; }
+.us-card__rm { font-size: 13px; color: var(--muted); }
+.us-card__rm:empty { display: none; }
+.us-card__svc { font-size: 14px; }
+.us-card__note { font-size: 13px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+
+.us-item--berjalan .us-card { border-left-color: var(--blue-800); }
+.us-item--selesai .us-card { border-left-color: var(--ok); }
+.us-item--overdue .us-card { border-left-color: var(--danger); }
+.us-item--batal .us-card { border-left-color: var(--line); }
+.us-item:disabled { cursor: default; opacity: .55; }
+
+.us-meta, .us-soap { margin: 0 0 12px; }
+.us-meta dt, .us-soap dt { margin-top: 8px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.us-meta dd, .us-soap dd { margin: 2px 0 0; }
+.us-soap dd { white-space: pre-wrap; overflow-wrap: anywhere; }
+.us-detail h3 { margin: 16px 0 6px; font-size: 15px; }
+.us-svclist { margin: 0; padding-left: 20px; }
+
+@media (min-width: 640px) {
+  .us-head h1 { font-size: 32px; }
+  .us-quick { flex: 0 0 auto; }
+  .us-dates { max-width: 420px; }
+  .us-item { grid-template-columns: 64px minmax(0, 1fr); gap: 14px; }
+}

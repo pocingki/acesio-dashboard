@@ -220,12 +220,15 @@ add('GET', '/api/staff/charts', 'staff', ({ query }) => {
     ${w} GROUP BY u.id ORDER BY value DESC, u.name COLLATE NOCASE`).all(...args);
   const services = usageRows(period).map((s) => ({ label: s.name, value: s.uses }));
   const origin = Object.fromEntries(db.prepare('SELECT origin, COUNT(*) AS n FROM customers GROUP BY origin').all().map((r) => [r.origin, r.n]));
+  // Customer baru pada periode terpilih (hari bisnis di APP_TZ dari created_at). Dipakai angka di tengah donat.
+  const newInPeriod = db.prepare("SELECT created_at FROM customers WHERE origin = 'baru'").all()
+    .filter((r) => { const d = ymd(new Date(r.created_at)); return (!period.from || d >= period.from) && (!period.to || d <= period.to); }).length;
   const gender = Object.fromEntries(db.prepare('SELECT gender, COUNT(*) AS n FROM customers GROUP BY gender').all().map((r) => [r.gender, r.n]));
   return {
     charts: {
       visits: donut(visits),
       services: donut(services),
-      customers: donut([{ label: 'Data awal (admin/supervisor)', value: origin.awal || 0 }, { label: 'Customer baru', value: origin.baru || 0 }]),
+      customers: { ...donut([{ label: 'Customer baru', value: newInPeriod }, { label: 'Data awal', value: origin.awal || 0 }]), center: newInPeriod },
       gender: donut([{ label: 'Laki-laki', value: gender.L || 0 }, { label: 'Perempuan', value: gender.P || 0 }, { label: 'Belum diisi', value: gender[''] || 0 }]),
     },
   };

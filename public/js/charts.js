@@ -60,7 +60,7 @@ export function donutSummary({ title, unit, total, segments }) {
 }
 
 // data: { total, items: [{ label, value }] }
-export function donutCard({ title, subtitle, unit, data }) {
+export function donutCard({ title, subtitle, unit, data, centerUnit }) {
   const items = Array.isArray(data?.items) ? data.items : [];
   const segments = donutSegments(items, data?.total);
   const total = num(data?.total) > 0 ? num(data.total) : segments.reduce((a, s) => a + s.value, 0);
@@ -91,6 +91,6 @@ export function donutCard({ title, subtitle, unit, data }) {
   return h('section', { class: 'chart-card', 'aria-label': title },
     h('h3', null, title),
     h('p', { class: 'chart-card__sub' }, subtitle),
-    h('div', { class: 'donut' }, ring, h('div', { class: 'donut__center', 'aria-hidden': 'true' }, h('b', null, fmtNum(total)), h('small', null, unit))),
+    h('div', { class: 'donut' }, ring, h('div', { class: 'donut__center', 'aria-hidden': 'true' }, h('b', null, fmtNum(Number.isFinite(Number(data?.center)) ? Number(data.center) : total)), h('small', null, centerUnit || unit))),
     legend);
 }

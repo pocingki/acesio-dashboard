@@ -1,4 +1,4 @@
-// Tes revisi: kolom Catatan Medis (customer, impor, ekspor) dan rincian log audit yang terbaca manusia.
+// Tes revisi: kolom SOAP (customer, impor, ekspor) dan rincian log audit yang terbaca manusia.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
@@ -21,7 +21,7 @@ async function makeAccount(username, role = 'user') {
   return { id: r.json.id, session: await srv.login(username, 'rahasia123') };
 }
 
-test('customer: catatan medis tersimpan, bisa dicari, multi-baris dipertahankan', async () => {
+test('customer: SOAP tersimpan, bisa dicari, multi-baris dipertahankan', async () => {
   const note = 'Keluhan nyeri lutut kanan\nAlergi: minyak kayu putih\n\n\n\nRiwayat operasi 2023';
   const r = await api(sv, '/api/staff/customers', { method: 'POST', body: { rm_no: 'MED-001', name: 'Pasien Medis', medical_note: note } });
   assert.equal(r.status, 200, r.text);
@@ -45,7 +45,7 @@ test('customer: admin juga bisa mengisi, panjang dibatasi 2000, user biasa ditol
   assert.equal((await api(usr.session, '/api/staff/customers')).status, 403);
 });
 
-test('catatan medis tidak bocor ke endpoint sisi user', async () => {
+test('SOAP tidak bocor ke endpoint sisi user', async () => {
   const usr = await makeAccount('usr2', 'user');
   await api(sv, '/api/staff/customers', { method: 'POST', body: { rm_no: 'MED-003', name: 'Rahasia Medis', medical_note: 'DIAGNOSA-RAHASIA-XYZ' } });
   for (const url of ['/api/customers/search?q=MED-003', '/api/customers?q=MED-003', '/api/records/mine?q=MED-003']) {
@@ -54,14 +54,14 @@ test('catatan medis tidak bocor ke endpoint sisi user', async () => {
   }
 });
 
-test('ekspor CSV dan Excel memuat kolom Catatan Medis; template juga', async () => {
+test('ekspor CSV dan Excel memuat kolom SOAP; template juga', async () => {
   const csv = await api(sv, '/api/staff/customers/export?format=csv&q=MED-001');
   const header = csv.text.replace(/^﻿/, '').split('\r\n')[0];
-  assert.ok(header.endsWith('Referensi,Catatan Medis'), header);
+  assert.ok(header.endsWith('Referensi,SOAP'), header);
   assert.ok(csv.text.includes('Sudah membaik'));
 
   const tpl = await api(sv, '/api/staff/customers/template?format=csv');
-  assert.ok(tpl.text.includes('Catatan Medis'));
+  assert.ok(tpl.text.includes('SOAP'));
 
   const x = await fetch(`${srv.base}/api/staff/customers/export?format=xlsx`, { headers: { Cookie: sv.cookie } });
   assert.equal(x.status, 200);
@@ -78,13 +78,13 @@ test('ekspor CSV dan Excel memuat kolom Catatan Medis; template juga', async () 
     if (name === 'xl/worksheets/sheet1.xml') xml = (method === 8 ? inflateRawSync(buf.subarray(start, start + csize)) : buf.subarray(start, start + csize)).toString();
     off = start;
   }
-  assert.ok(xml.includes('Catatan Medis'), 'header Excel');
+  assert.ok(xml.includes('SOAP'), 'header Excel');
   assert.ok(xml.includes('Sudah membaik'), 'isi Excel');
   assert.ok(xml.includes('s="4"'), 'gaya wrap text dipakai');
 });
 
-test('impor: kolom Catatan Medis dibaca, sel kosong tidak menghapus catatan lama', async () => {
-  const csv = 'No,No RM,Nama,Catatan Medis\n1,IMP-001,Impor Satu,"Hipertensi\nKontrol rutin"\n2,MED-001,Pasien Medis,\n';
+test('impor: kolom SOAP dibaca, sel kosong tidak menghapus catatan lama', async () => {
+  const csv = 'No,No RM,Nama,SOAP\n1,IMP-001,Impor Satu,"Hipertensi\nKontrol rutin"\n2,MED-001,Pasien Medis,\n';
   const r = await api(sv, '/api/staff/customers/import', { method: 'POST', body: { format: 'csv', content: csv } });
   assert.equal(r.status, 200, r.text);
   assert.equal(db.prepare('SELECT medical_note FROM customers WHERE rm_no = ?').get('IMP-001').medical_note, 'Hipertensi\nKontrol rutin');
@@ -124,8 +124,8 @@ test('audit: akun, approve, hapus, customer, dan password diterjemahkan', async 
 
   const cu = by('customer.update', (r) => r.target_id === String(c.json.id));
   assert.equal(cu.target_label, 'AUD-9 · Budi Audit');
-  assert.match(cu.summary, /Referensi, Catatan Medis/);
-  assert.ok(!JSON.stringify(cu.items).includes('catatan baru'), 'isi catatan medis tidak masuk log');
+  assert.match(cu.summary, /Referensi, SOAP/);
+  assert.ok(!JSON.stringify(cu.items).includes('catatan baru'), 'isi SOAP tidak masuk log');
 
   const create = by('account.create');
   assert.match(create.summary, /^Membuat akun /);

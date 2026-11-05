@@ -7,6 +7,7 @@ import path from 'node:path';
 // DATA_DIR sementara harus di-set SEBELUM db.js diimpor.
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'acesio-auth-'));
 process.env.DATA_DIR = tmp;
+process.env.ACCESS_HOURS = 'off'; // login() memeriksa jam akses role user; tes ini tidak boleh bergantung pada jam
 delete process.env.TRUST_PROXY;
 delete process.env.COOKIE_SECURE;
 

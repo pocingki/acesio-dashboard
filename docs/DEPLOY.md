@@ -18,6 +18,7 @@ PORT=3000
 DATA_DIR=/var/lib/acesio
 BACKUP_DIR=/var/backups/acesio
 APP_TZ=Asia/Jakarta
+ACCESS_HOURS=06:00-23:00
 COOKIE_SECURE=true
 TRUST_PROXY=true
 SESSION_HOURS=12
@@ -25,6 +26,10 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=<password panjang acak, hanya dipakai saat belum ada supervisor>
 BOT_API_KEY=<hasil: node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))">
 ```
+
+**Zona waktu dan jam akses.** `APP_TZ` bukan sekadar tampilan: ia menentukan "hari ini" untuk jadwal (user hanya bisa menjalankan jadwal bertanggal hari ini), kunci data harian, dan **jam akses user**. Pakai nama zona IANA yang benar (mis. `Asia/Jakarta`, `Asia/Makassar`, `Asia/Jayapura`), jangan bergantung pada zona server. `ACCESS_HOURS` (`HH:MM-HH:MM`, bawaan `06:00-23:00`) membatasi **hanya akun role user**: boleh sampai 22:59:59, mulai 23:00:00 ditolak (403 `OUTSIDE_HOURS`) dan sesi yang sedang aktif dicabut pada permintaan berikutnya. `off` mematikan pembatasan; nilai yang salah diganti default dan peringatannya dicetak di log. Setelah mengubah `APP_TZ` atau `ACCESS_HOURS`, nyalakan ulang layanan (`sudo systemctl restart acesio`). Jadwal yang sudah dibuat tetap menyimpan tanggal teks `YYYY-MM-DD`, jadi mengganti `APP_TZ` di tengah jalan menggeser arti "hari ini" untuk jadwal yang belum jalan; ubah hanya saat tidak ada jadwal aktif.
+
+**`APP_FAKE_NOW_FILE` khusus tes.** Variabel ini memalsukan jam server dan **hanya dibaca bila `NODE_ENV=test`**. Jangan pernah mengisinya di `acesio.env` produksi; pastikan `NODE_ENV=production` (atau tidak `test`) dan variabel itu tidak ada. Memeriksa cepat: `sudo grep -c APP_FAKE_NOW_FILE /etc/acesio/acesio.env` harus `0`.
 
 ```bash
 sudo useradd --system --home /opt/acesio-dashboard --shell /usr/sbin/nologin acesio
@@ -134,6 +139,7 @@ Pembaruan: `git pull && npm run check && npm test && sudo systemctl restart aces
 Catatan penting:
 
 - Backup database **tidak** menyertakan `/var/lib/acesio/uploads/` (foto layanan). Salin juga, misalnya `rsync -a /var/lib/acesio/uploads/ /var/backups/acesio-uploads/`.
+- Database (dan backup-nya) memuat **SOAP kunjungan**, yaitu data klinis. Pastikan `/var/backups/acesio` berizin `750` untuk pemilik `acesio`, dan kirim salinan luar server lewat kanal terenkripsi.
 - Backup di mesin yang sama tidak melindungi dari disk rusak. Kirim ke luar server (rsync/rclone/object storage) setiap hari.
 - Uji pemulihan minimal sekali sebelum Anda membutuhkannya.
 

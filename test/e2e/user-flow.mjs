@@ -4,15 +4,16 @@
 //
 // Butuh Playwright + Chromium terpasang di mesin ini (bukan dependensi repo), misalnya:
 //   npx playwright install chromium   (dan paket "playwright" tersedia lewat NODE_PATH / global)
-// Skrip menjalankan server sendiri di port acak dengan DATA_DIR sementara, membuat akun dan customer
+// Skrip menjalankan server sendiri di port acak dengan DATA_DIR sementara, membuat akun, customer, dan jadwal
 // lewat API, lalu mengendalikan browser. Tidak menyentuh data asli.
 //
-// Catatan: pengujian idempotensi (hanya 1 record) baru lulus setelah server mendukung header Idempotency-Key.
+// Alur yang diuji (revisi v1.3.0): Beranda -> klik angka -> Jadwal Saya -> klik jadwal (memulai) -> isi SOAP -> Simpan.
+// User tidak memilih customer maupun layanan; keduanya ditentukan admin pada jadwal.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -25,15 +26,26 @@ const SKIP = process.env.NODE_TEST_CONTEXT && !process.env.E2E ? 'E2E dilewati d
 const ADMIN = { username: 'admin', password: 'admin-e2e-pass' };
 const USER_PASSWORD = 'e2e-password-1';
 const RM = 'RM-E2E-1';
+const RM2 = 'RM-E2E-2';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const UNCERTAIN = 'Belum pasti tersimpan. Menekan Input lagi aman, data tidak akan ganda.';
+const UNCERTAIN = 'Belum pasti tersimpan. Menekan Simpan lagi aman, data tidak akan ganda.';
+const SOAP_ISI = {
+  s: 'Nyeri lutut kanan sejak dua minggu.',
+  o: 'Fleksi lutut 110 derajat, tidak bengkak.',
+  a: 'Dugaan strain ligamen ringan.',
+  p: 'Terapi manual, evaluasi dua minggu lagi.',
+};
+// Hari ini menurut zona bisnis server (APP_TZ bawaan Asia/Jakarta).
+const dayFmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' });
+const ymdOf = (d) => dayFmt.format(d);
+const TODAY = () => ymdOf(new Date());
+const TOMORROW = () => ymdOf(new Date(Date.now() + 86400000));
 
-let server;
-let dataDir;
-let base;
+let main; // server utama (jam akses dimatikan supaya tes tidak bergantung pada jam mesin)
 let browser;
-let adminCookie;
 let userSeq = 0;
+let schedSeq = 0;
+const base = () => main.base;
 
 const freePort = () => new Promise((resolve, reject) => {
   const s = net.createServer();
@@ -41,16 +53,40 @@ const freePort = () => new Promise((resolve, reject) => {
   s.on('error', reject);
 });
 
-async function adminApi(method, url, body) {
-  const res = await fetch(base + url, {
+async function api(srv, method, url, body, cookie = srv.adminCookie) {
+  const res = await fetch(srv.base + url, {
     method,
-    headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
     body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
   });
   const data = await res.json().catch(() => ({}));
   assert.ok(res.ok, `${method} ${url} gagal: ${res.status} ${data.error || ''}`);
   return data;
 }
+const adminApi = (method, url, body) => api(main, method, url, body);
+
+// Menyalakan satu server dengan DATA_DIR sendiri. `env` menimpa lingkungan; ACCESS_HOURS bawaan di sini = off.
+async function startServer(env = {}) {
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), 'acesio-e2e-'));
+  const port = await freePort();
+  const url = `http://127.0.0.1:${port}`;
+  const proc = spawn(process.execPath, ['--no-warnings', 'server/index.js'], {
+    cwd: ROOT,
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: dataDir, ADMIN_USERNAME: ADMIN.username, ADMIN_PASSWORD: ADMIN.password, BOT_API_KEY: '', ACCESS_HOURS: 'off', ...env },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  proc.stdout.resume();
+  for (let i = 0; ; i++) {
+    try { await fetch(`${url}/api/auth/me`); break; } catch { if (i > 100) throw new Error('Server tidak mau jalan'); await sleep(100); }
+  }
+  const res = await fetch(`${url}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ADMIN) });
+  assert.equal(res.status, 200, 'login admin gagal');
+  const srv = { base: url, dataDir, proc, adminCookie: res.headers.getSetCookie()[0].split(';')[0] };
+  await api(srv, 'POST', '/api/staff/customers', { rm_no: RM, name: 'Customer E2E', phone: '081234567890' });
+  await api(srv, 'POST', '/api/staff/customers', { rm_no: RM2, name: 'Customer Dua', phone: '081234567891' });
+  return srv;
+}
+const stopServer = (srv) => { if (srv?.proc) srv.proc.kill(); if (srv?.dataDir) rmSync(srv.dataDir, { recursive: true, force: true }); };
 
 before(async () => {
   if (SKIP) return;
@@ -61,42 +97,35 @@ before(async () => {
   } catch {
     throw new Error('Playwright belum terpasang. Pasang dengan: npm i -g playwright && npx playwright install chromium (lalu NODE_PATH ke folder global).');
   }
-  dataDir = mkdtempSync(path.join(os.tmpdir(), 'acesio-e2e-'));
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-  server = spawn(process.execPath, ['--no-warnings', 'server/index.js'], {
-    cwd: ROOT,
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: dataDir, ADMIN_USERNAME: ADMIN.username, ADMIN_PASSWORD: ADMIN.password, BOT_API_KEY: '' },
-    stdio: ['ignore', 'pipe', 'inherit'],
-  });
-  server.stdout.resume();
-  for (let i = 0; ; i++) {
-    try { await fetch(`${base}/api/auth/me`); break; } catch { if (i > 100) throw new Error('Server tidak mau jalan'); await sleep(100); }
-  }
-  const res = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ADMIN) });
-  assert.equal(res.status, 200, 'login admin gagal');
-  adminCookie = res.headers.getSetCookie()[0].split(';')[0];
-  await adminApi('POST', '/api/staff/customers', { rm_no: RM, name: 'Customer E2E', phone: '081234567890' });
+  main = await startServer();
   browser = await chromium.launch();
 });
 
 after(async () => {
   if (browser) await browser.close();
-  if (server) server.kill();
-  if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  stopServer(main);
 });
 
 // Akun baru per tes supaya hitungan record terisolasi.
-async function newUser() {
+async function newUser(srv = main) {
   const username = `e2e_user_${++userSeq}`;
-  await adminApi('POST', '/api/sv/accounts', { username, name: `User E2E ${userSeq}`, password: USER_PASSWORD });
+  await api(srv, 'POST', '/api/sv/accounts', { username, name: `User E2E ${userSeq}`, password: USER_PASSWORD });
+  const { workers } = await api(srv, 'GET', '/api/staff/schedule-workers');
+  const id = workers.find((w) => w.username === username).id;
   const context = await browser.newContext();
   const page = await context.newPage();
-  return { username, context, page };
+  return { username, id, context, page, srv };
 }
 
-async function login(page, username) {
-  await page.goto(base);
+// Admin membuat jadwal untuk user (customer dan layanan ditentukan admin).
+async function makeSchedule(u, { day = TODAY(), start, rm = RM, services = [1], note = '' } = {}) {
+  const start_time = start || `${String(8 + (++schedSeq % 12)).padStart(2, '0')}:00`;
+  const { schedule } = await api(u.srv, 'POST', '/api/staff/schedules', { user_id: u.id, customer_rm: rm, service_ids: services, day, start_time, note });
+  return schedule;
+}
+
+async function login(page, username, srv = main) {
+  await page.goto(srv.base);
   await page.fill('#u', username);
   await page.fill('#p', USER_PASSWORD);
   await page.click('button[type=submit]');
@@ -104,73 +133,178 @@ async function login(page, username) {
 }
 
 const tab = (page, name) => page.getByRole('button', { name, exact: true });
-const submitBtn = (page) => page.locator('.panel .btn--primary').first();
+const saveBtn = (page) => page.getByRole('button', { name: /^(Simpan|Menyimpan)/ });
+const rows = (page) => page.locator('.us-item');
 
-async function pickCustomerAndService(page) {
-  await page.waitForSelector('.svc-grid .svc');
-  await page.fill('#cust-rm', RM);
-  await page.click('.cust__opt');
-  await page.locator('.svc-grid .svc').first().click();
-  await page.waitForFunction(() => /^Input/.test(document.querySelector('.panel .btn--primary')?.textContent || '') && !document.querySelector('.panel .btn--primary').disabled);
+async function fillSoap(page, soap = SOAP_ISI) {
+  for (const [k, v] of Object.entries(soap)) await page.fill(`#soap-${k}`, v);
 }
 
-async function myRecords(context) {
-  const res = await context.request.get(`${base}/api/records/mine`);
+async function myRecords(context, srv = main) {
+  const res = await context.request.get(`${srv.base}/api/records/mine`);
   assert.equal(res.status(), 200);
   return (await res.json()).records;
 }
 
+async function scheduleOf(id) {
+  return (await adminApi('GET', `/api/staff/schedules/${id}`)).schedule;
+}
+
+// Membuka halaman input dari Jadwal Saya (klik baris = memulai jadwal).
+async function openFirstRow(page) {
+  await tab(page, 'Jadwal Saya').click();
+  await page.waitForSelector('.us-item');
+  await rows(page).first().click();
+  await page.waitForSelector('#soap-s');
+}
+
 // ---------------------------------------------------------------- #6 tab bercampur
-test('pindah tab saat /api/services masih memuat tidak mencampur halaman', { skip: SKIP }, async () => {
-  const { username, context, page } = await newUser();
+test('pindah tab saat Jadwal Saya masih memuat tidak mencampur halaman', { skip: SKIP }, async () => {
+  const u = await newUser();
+  const { context, page } = u;
   try {
-    await page.route('**/api/services', async (route) => { await sleep(1500); await route.continue(); });
-    await login(page, username);
+    await makeSchedule(u);
+    await page.route('**/api/my/schedules*', async (route) => { await sleep(1500); await route.continue(); });
+    await login(page, u.username);
+    await page.waitForSelector('.home-hero');
+    await tab(page, 'Jadwal Saya').click();
     await tab(page, 'Riwayat Customer').click();
     await page.waitForSelector('h1:has-text("Riwayat customer")');
-    await page.waitForTimeout(2200); // lewati penundaan 1,5 dtk: respons /api/services yang terlambat tidak boleh menyentuh halaman
-    assert.equal(await page.locator('.svc-grid').count(), 0, 'grid layanan tidak boleh muncul di tab Riwayat');
-    assert.equal(await page.locator('.panel').count(), 0, 'panel input tidak boleh muncul di tab Riwayat');
+    await page.waitForTimeout(2200); // lewati penundaan 1,5 dtk: respons yang terlambat tidak boleh menyentuh halaman
+    assert.equal(await page.locator('.us').count(), 0, 'daftar jadwal tidak boleh muncul di tab Riwayat');
+    assert.equal(await page.locator('.visit').count(), 0);
     assert.deepEqual(await page.locator('main h1').allTextContents(), ['Riwayat customer']);
-
-    await tab(page, 'Layanan').click();
-    await page.waitForSelector('.svc-grid .svc'); // tab Layanan tetap bisa dimuat sesudahnya
-    assert.deepEqual(await page.locator('main h1').allTextContents(), ['Pilih layanan']);
   } finally { await context.close(); }
 });
 
-// ---------------------------------------------------------------- #2 pilihan tersimpan antar tab
-test('pilihan customer dan layanan bertahan saat pindah tab, hilang saat keluar', { skip: SKIP }, async () => {
-  const { username, context, page } = await newUser();
+// ---------------------------------------------------------------- alur utama: Beranda -> Jadwal -> SOAP
+test('alur utama: Beranda, klik angka, Jadwal Saya, klik jadwal, isi SOAP, simpan (tanpa memilih layanan)', { skip: SKIP }, async () => {
+  const u = await newUser();
+  const { context, page } = u;
   try {
-    await login(page, username);
-    await pickCustomerAndService(page);
+    const a = await makeSchedule(u, { start: '09:00', rm: RM, services: [1, 2], note: 'Datang lebih awal.' });
+    await makeSchedule(u, { start: '10:00', rm: RM2, services: [3] });
+    await makeSchedule(u, { start: '11:00', rm: RM, services: [4] }); // customer sama: dihitung sekali
+    await makeSchedule(u, { day: TOMORROW(), start: '09:00', rm: RM2 });
+    await login(page, u.username);
+
+    // Beranda adalah tab awal; angka = customer unik hari ini (D7), jadwal besok tidak dihitung.
+    await page.waitForSelector('.home-hero');
+    assert.match(await page.locator('.home-hero').getAttribute('aria-label'), /^2 customer hari ini/);
+    assert.equal(await page.locator('.home-hero__num').innerText(), '2');
+
+    // Klik angka -> Jadwal Saya (hari ini saja).
+    await page.locator('.home-hero').click();
+    await page.waitForSelector('.us-item');
+    assert.equal(await rows(page).count(), 3, 'default hanya jadwal hari ini');
+    assert.equal(await page.locator('.svc-grid').count(), 0, 'tidak ada pemilih layanan');
+
+    // Klik jadwal pertama (09:00) = memulai jadwal dan membuka halaman input untuk jadwal itu.
+    assert.equal((await scheduleOf(a.id)).status, 'baru');
+    await rows(page).first().click();
+    await page.waitForSelector('#soap-s');
+    assert.equal((await scheduleOf(a.id)).status, 'berjalan', 'klik baris memulai jadwal (D8)');
+
+    // Customer dan layanan sudah ditentukan admin; user hanya mengisi SOAP.
+    assert.equal(await page.locator('#cust-rm').count(), 0, 'tidak ada kolom pencarian customer');
+    assert.equal(await page.locator('.svc-grid').count(), 0, 'tidak ada pemilih layanan');
+    assert.match(await page.locator('.visit-card__name').innerText(), /Customer E2E/);
+    assert.equal(await page.locator('.visit-services__list li').count(), 2);
+    assert.match(await page.locator('.visit-card__note').innerText(), /Datang lebih awal/);
+    assert.equal(await saveBtn(page).isDisabled(), true, 'Simpan nonaktif sebelum SOAP lengkap');
+
+    // Bagian yang terlalu pendek ditolak di klien; setelah keempat bagian terisi tombol aktif.
+    await page.fill('#soap-s', 'ab');
+    await page.locator('#soap-s').blur();
+    assert.equal(await saveBtn(page).isDisabled(), true);
+    await fillSoap(page);
+    assert.equal(await saveBtn(page).isDisabled(), false);
+    await saveBtn(page).click();
+
+    // Setelah tersimpan kembali ke Jadwal Saya; jadwal itu Selesai.
+    await page.waitForSelector('.us-item');
+    await page.getByText(/SOAP tersimpan/).first().waitFor();
+    const done = await scheduleOf(a.id);
+    assert.equal(done.status, 'selesai');
+    assert.equal(done.has_soap, true);
+    assert.deepEqual(done.soap, SOAP_ISI);
+    assert.equal((await myRecords(context)).length, 2, 'satu record per layanan jadwal');
+
+    // Beranda ikut berubah.
+    await tab(page, 'Beranda').click();
+    await page.waitForSelector('.home-hero');
+    assert.match(await page.locator('.home-stats').innerText(), /Selesai\s*1|1\s*Selesai/);
+  } finally { await context.close(); }
+});
+
+// ---------------------------------------------------------------- filter tanggal
+test('Jadwal Saya: bawaan hari ini, tombol Semua menampilkan semua tanggal, jadwal besok tidak bisa dijalankan', { skip: SKIP }, async () => {
+  const u = await newUser();
+  const { context, page } = u;
+  try {
+    await makeSchedule(u, { start: '09:00' });
+    const besok = await makeSchedule(u, { day: TOMORROW(), start: '10:00', rm: RM2 });
+    await login(page, u.username);
+    await tab(page, 'Jadwal Saya').click();
+    await page.waitForSelector('.us-item');
+    assert.equal(await rows(page).count(), 1, 'bawaan: hari ini saja');
+
+    await page.getByRole('button', { name: 'Semua', exact: true }).click();
+    await page.waitForFunction(() => document.querySelectorAll('.us-item').length === 2);
+    assert.match(await page.locator('.us-group__tag').first().innerText(), /Hari ini/);
+
+    // Klik jadwal besok: hanya pesan, tidak memulai dan tidak membuka halaman input.
+    await rows(page).nth(1).click();
+    await page.getByText(/bukan untuk hari ini/).first().waitFor();
+    assert.equal(await page.locator('#soap-s').count(), 0);
+    assert.equal((await scheduleOf(besok.id)).status, 'baru');
+  } finally { await context.close(); }
+});
+
+// ---------------------------------------------------------------- input tanpa jadwal
+test('tab Input Customer tanpa jadwal meminta memilih jadwal dulu', { skip: SKIP }, async () => {
+  const u = await newUser();
+  const { context, page } = u;
+  try {
+    await login(page, u.username);
+    await tab(page, 'Input Customer').click();
+    await page.getByText('Pilih jadwal dulu').waitFor();
+    assert.equal(await page.locator('textarea').count(), 0);
+    await page.getByRole('button', { name: 'Buka Jadwal Saya' }).click();
+    await page.waitForSelector('h1:has-text("Jadwal Saya")');
+  } finally { await context.close(); }
+});
+
+// ---------------------------------------------------------------- draf SOAP
+test('draf SOAP bertahan saat pindah tab dan hilang saat keluar', { skip: SKIP }, async () => {
+  const u = await newUser();
+  const { context, page } = u;
+  try {
+    await makeSchedule(u);
+    await login(page, u.username);
+    await openFirstRow(page);
+    await page.fill('#soap-s', 'Draf subjective');
     await tab(page, 'Riwayat Customer').click();
     await page.waitForSelector('h1:has-text("Riwayat customer")');
-    await tab(page, 'Layanan').click();
-    await page.waitForSelector('.svc-grid .svc');
-    assert.ok(await page.locator('.chip-ok').isVisible(), 'customer terpilih harus pulih');
-    assert.match(await page.locator('.chip-ok').innerText(), /Customer E2E/);
-    assert.equal(await page.locator('.svc[aria-pressed=true]').count(), 1);
-    assert.equal(await submitBtn(page).isDisabled(), false);
+    await openFirstRow(page); // jadwal berjalan: klik lagi membuka halaman yang sama
+    assert.equal(await page.inputValue('#soap-s'), 'Draf subjective', 'draf pulih');
 
     await page.getByRole('button', { name: 'Keluar' }).click();
     await page.waitForSelector('.login');
     assert.equal((await page.locator('.login .error').innerText()).trim(), '', 'keluar yang disengaja tidak menampilkan "Sesi berakhir"');
-    await page.fill('#u', username);
-    await page.fill('#p', USER_PASSWORD);
-    await page.click('button[type=submit]');
-    await page.waitForSelector('.svc-grid .svc');
-    assert.equal(await page.locator('.chip-ok').isVisible(), false, 'customer harus kosong setelah logout');
-    assert.equal(await page.locator('.svc[aria-pressed=true]').count(), 0);
+    await login(page, u.username);
+    await openFirstRow(page);
+    assert.equal(await page.inputValue('#soap-s'), '', 'draf dibuang setelah keluar');
   } finally { await context.close(); }
 });
 
 // ---------------------------------------------------------------- #4 idempotensi
-test('Input ditekan dua kali setelah respons hilang: hanya 1 record dan key sama', { skip: SKIP }, async () => {
-  const { username, context, page } = await newUser();
+test('Simpan ditekan dua kali setelah respons hilang: record tidak ganda dan key sama', { skip: SKIP }, async () => {
+  const u = await newUser();
+  const { context, page } = u;
   try {
-    await login(page, username);
+    const s = await makeSchedule(u, { services: [1] });
+    await login(page, u.username);
     const keys = [];
     let sent = 0;
     await page.route('**/api/records', async (route) => {
@@ -181,52 +315,142 @@ test('Input ditekan dua kali setelah respons hilang: hanya 1 record dan key sama
       await sleep(600); // permintaan kedua lambat: tombol harus tetap nonaktif selama berjalan
       return route.continue();
     });
-    await pickCustomerAndService(page);
-    await submitBtn(page).click();
+    await openFirstRow(page);
+    await fillSoap(page);
+    await saveBtn(page).click();
     await page.getByText(UNCERTAIN).first().waitFor();
-    await page.waitForFunction(() => !document.querySelector('.panel .btn--primary').disabled);
+    await page.waitForFunction(() => !document.querySelector('.visit__actions .btn--primary').disabled);
 
-    await submitBtn(page).click();
-    assert.equal(await submitBtn(page).isDisabled(), true, 'tombol Input nonaktif selama permintaan berjalan');
-    await submitBtn(page).click({ force: true, timeout: 500 }).catch(() => {}); // tekan lagi: tidak boleh mengirim permintaan ketiga
-    await page.getByText(/layanan tercatat untuk/).waitFor();
+    await saveBtn(page).click();
+    assert.equal(await saveBtn(page).isDisabled(), true, 'tombol Simpan nonaktif selama permintaan berjalan');
+    await saveBtn(page).click({ force: true, timeout: 500 }).catch(() => {}); // tekan lagi: tidak boleh mengirim permintaan ketiga
+    await page.getByText(/SOAP tersimpan/).first().waitFor();
 
     assert.equal(sent, 2, 'hanya dua permintaan (percobaan ulang), bukan tiga');
     assert.ok(keys[0], 'header Idempotency-Key harus terkirim');
-    assert.equal(keys[0], keys[1], 'key dipertahankan untuk percobaan ulang pada kombinasi yang sama');
+    assert.equal(keys[0], keys[1], 'key dipertahankan untuk percobaan ulang pada jadwal yang sama');
     assert.equal((await myRecords(context)).length, 1, 'harus tepat 1 record');
+    assert.equal((await scheduleOf(s.id)).status, 'selesai');
   } finally { await context.close(); }
 });
 
-test('Input saat jaringan putus lalu tersambung: hanya 1 record dan key dibuang setelah sukses', { skip: SKIP }, async () => {
-  const { username, context, page } = await newUser();
+test('Simpan saat jaringan putus lalu tersambung: 1 record, key dibuang setelah sukses, jadwal lain memakai key baru', { skip: SKIP }, async () => {
+  const u = await newUser();
+  const { context, page } = u;
   try {
-    await login(page, username);
+    await makeSchedule(u, { start: '09:00', services: [1] });
+    await makeSchedule(u, { start: '10:00', rm: RM2, services: [2] });
+    await login(page, u.username);
     const keys = [];
     await page.route('**/api/records', (route) => {
       if (route.request().method() === 'POST') keys.push(route.request().headers()['idempotency-key']);
       return route.fallback();
     });
-    await pickCustomerAndService(page);
+    await openFirstRow(page);
+    await fillSoap(page);
 
     await context.setOffline(true);
-    await submitBtn(page).click();
+    await saveBtn(page).click();
     await page.getByText(UNCERTAIN).first().waitFor();
     await context.setOffline(false);
-    await page.waitForFunction(() => !document.querySelector('.panel .btn--primary').disabled);
-    await submitBtn(page).click();
-    await page.getByText(/layanan tercatat untuk/).waitFor();
+    await page.waitForFunction(() => !document.querySelector('.visit__actions .btn--primary').disabled);
+    await saveBtn(page).click();
+    await page.getByText(/SOAP tersimpan/).first().waitFor();
     assert.equal((await myRecords(context)).length, 1);
 
-    // Kombinasi baru sesudah sukses memakai key baru.
-    await pickCustomerAndService(page);
-    await submitBtn(page).click();
+    // Jadwal berikutnya (belum selesai) memakai key baru.
+    await page.waitForSelector('.us-item');
+    await page.locator('.us-item--baru').first().click();
+    await page.waitForSelector('#soap-s');
+    await fillSoap(page);
+    await saveBtn(page).click();
     for (let i = 0; i < 100 && keys.length < 3; i++) await sleep(50);
-    assert.equal(keys.length, 3, 'tiga permintaan POST: gagal offline, ulang, lalu kombinasi baru');
+    assert.equal(keys.length, 3, 'tiga permintaan POST: gagal offline, ulang, lalu jadwal berikutnya');
     assert.ok(keys[0], 'header Idempotency-Key harus terkirim');
     assert.equal(keys[0], keys[1], 'percobaan ulang memakai key yang sama');
-    assert.notEqual(keys[2], keys[0], 'kombinasi baru setelah sukses memakai key baru');
+    assert.notEqual(keys[2], keys[0], 'jadwal berikutnya memakai key baru');
   } finally { await context.close(); }
+});
+
+// ---------------------------------------------------------------- notifikasi (lonceng)
+test('lonceng: tugas baru, sedang dijalani, selesai; membuka notifikasi menuju Jadwal Saya', { skip: SKIP }, async () => {
+  const u = await newUser();
+  const { context, page } = u;
+  try {
+    const s = await makeSchedule(u, { start: '09:00', services: [1] });
+    await login(page, u.username);
+    const bell = page.locator('.notify__btn');
+    await bell.waitFor();
+    await page.waitForFunction(() => /1/.test(document.querySelector('.notify__btn').getAttribute('aria-label') || ''));
+    assert.equal(await page.locator('.notify__badge').isVisible(), true, 'lencana belum dibaca tampil');
+
+    await bell.click();
+    await page.locator('.notify__panel').waitFor({ state: 'visible' });
+    assert.match(await page.locator('.notify__list').innerText(), /Tugas baru/);
+    await page.getByRole('button', { name: 'Tandai semua dibaca' }).click();
+    await page.waitForFunction(() => document.querySelector('.notify__badge')?.hidden !== false);
+    await page.keyboard.press('Escape');
+
+    // Mulai + selesai dari UI -> dua notifikasi baru.
+    await openFirstRow(page);
+    await fillSoap(page);
+    await saveBtn(page).click();
+    await page.getByText(/SOAP tersimpan/).first().waitFor();
+    await bell.click();
+    await page.locator('.notify__panel').waitFor({ state: 'visible' });
+    // Daftar dimuat ulang saat panel dibuka: tunggu sampai dua notifikasi baru muncul.
+    await page.waitForFunction(() => /Tugas selesai/.test(document.querySelector('.notify__list')?.innerText || ''));
+    const text = await page.locator('.notify__list').innerText();
+    assert.match(text, /Tugas sedang dijalani/);
+    assert.match(text, /Tugas selesai/);
+
+    // Klik notifikasi: menuju Jadwal Saya pada tanggal jadwal itu.
+    await tab(page, 'Beranda').click();
+    await page.waitForSelector('.home-hero');
+    await bell.click();
+    await page.locator('.notify__item').first().click();
+    await page.waitForSelector('h1:has-text("Jadwal Saya")');
+    assert.equal((await scheduleOf(s.id)).status, 'selesai');
+  } finally { await context.close(); }
+});
+
+// ---------------------------------------------------------------- jam akses
+test('jam akses: login ditolak di luar jam, sesi berjalan dicabut saat jam lewat, admin tidak dibatasi', { skip: SKIP }, async () => {
+  // Jam server dikendalikan lewat berkas (hanya dibaca bila NODE_ENV=test; tidak boleh dipakai di produksi).
+  const clockFile = path.join(mkdtempSync(path.join(os.tmpdir(), 'acesio-clock-')), 'now.txt');
+  const at = (hhmmWib) => { // jam WIB (UTC+7) pada hari ini -> waktu ISO UTC
+    const [h, m] = hhmmWib.split(':').map(Number);
+    return new Date(Date.parse(`${TODAY()}T00:00:00Z`) + ((h - 7) * 60 + m) * 60000).toISOString();
+  };
+  writeFileSync(clockFile, at('23:30')); // di luar 06.00-23.00
+  const srv = await startServer({ NODE_ENV: 'test', APP_FAKE_NOW_FILE: clockFile, ACCESS_HOURS: '06:00-23:00' });
+  const u = await newUser(srv);
+  const { context, page } = u;
+  try {
+    await page.goto(srv.base);
+    await page.fill('#u', u.username);
+    await page.fill('#p', USER_PASSWORD);
+    await page.click('button[type=submit]');
+    await page.waitForFunction(() => /pukul 06\.00/.test(document.querySelector('.login .error')?.textContent || ''));
+    assert.equal(await page.locator('.tabs').count(), 0, 'tidak masuk di luar jam akses');
+
+    // Admin/supervisor tidak dibatasi pada jam yang sama.
+    const adminRes = await fetch(`${srv.base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ADMIN) });
+    assert.equal(adminRes.status, 200);
+
+    // Dalam jam: bisa masuk. Lewat pukul 23.00: sesi dicabut pada permintaan berikutnya dan layar login memuat pesannya.
+    writeFileSync(clockFile, at('10:00'));
+    await login(page, u.username, srv);
+    await page.waitForSelector('.home-hero');
+    writeFileSync(clockFile, at('23:05'));
+    await tab(page, 'Jadwal Saya').click();
+    await page.waitForSelector('.login');
+    assert.match(await page.locator('.login .error').innerText(), /pukul 06\.00.23\.00/);
+  } finally {
+    await context.close();
+    stopServer(srv);
+    rmSync(path.dirname(clockFile), { recursive: true, force: true });
+  }
 });
 
 // ---------------------------------------------------------------- #11 #8 modal
@@ -355,7 +579,7 @@ test('sesi habis: modal ditutup, request dibatalkan, login tampil SEKALI', { ski
   const { username, context, page } = await newUser();
   try {
     await login(page, username);
-    await page.waitForSelector('.svc-grid .svc');
+    await page.waitForSelector('.home-hero');
     await page.locator('.userbtn').click();
     await page.waitForSelector('.overlay');
     await page.route('**/api/__t/slow2', async (r) => { await sleep(3000); await r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }); });

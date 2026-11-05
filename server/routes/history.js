@@ -117,7 +117,7 @@ const requireWorker = (user) => { if (user.role !== 'user') throw new HttpError(
 
 add('GET', '/api/records/mine', 'user', ({ user, query }) => {
   requireWorker(user);
-  // Catatan medis dikelola admin/supervisor; tidak dikirim ke user.
+  // SOAP pada tabel Customer dikelola admin/supervisor; tidak dikirim ke user.
   const records = myRecords(user.id, query, MINE_LIMIT).map(({ note, ...r }) => r);
   const totals = myTotals(user.id, query);
   return { records, totals, truncated: totals.services > records.length };

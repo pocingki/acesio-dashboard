@@ -1,0 +1,41 @@
+/* Halaman Input Customer (user): kartu customer, daftar layanan, form SOAP. Ponsel dulu. */
+.visit { display: grid; gap: 16px; max-width: 720px; margin: 0 auto; }
+.visit__title { margin: 0; font-size: 16px; }
+.visit__actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.visit__actions .btn { min-height: 44px; }
+
+.visit-card { background: #fff; border: 1.5px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+.visit-card__top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.visit-card__label { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.visit-card__name { margin: 2px 0 0; font-size: 20px; line-height: 1.25; word-break: break-word; }
+.visit-card__facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin: 14px 0 0; }
+.visit-card__facts dt { font-size: 12px; color: var(--muted); }
+.visit-card__facts dd { margin: 2px 0 0; font-weight: 600; }
+.visit-card__note { margin: 14px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--blue-50); color: var(--ink); font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+
+.visit-services { background: #fff; border: 1.5px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+.visit-services__head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.visit-services__list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.visit-services__list li { padding: 6px 12px; border-radius: 999px; background: var(--blue-100); color: var(--blue-800); font-size: 13.5px; font-weight: 600; }
+
+.visit__form, .visit__readonly { background: #fff; border: 1.5px solid var(--line); border-radius: 12px; padding: 16px 18px; display: grid; gap: 4px; }
+.visit__form .visit__title, .visit__readonly .visit__title { margin-bottom: 8px; }
+.visit__field { margin-bottom: 12px; }
+.visit__req { font-weight: 500; font-size: 13px; color: var(--muted); }
+.visit__area { min-height: 6.5em; display: block; }
+.visit__area:disabled { background: var(--blue-50); color: var(--muted); }
+.visit__area[aria-invalid="true"] { border-color: var(--danger); }
+.visit__area[aria-invalid="true"]:focus { outline-color: rgba(207, 44, 58, .35); }
+.visit__meta { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.visit__field-error { margin: 0; min-height: 0; flex: 1; }
+.visit__count { margin-left: auto; font-size: 12.5px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.visit__count.is-over { color: var(--danger); font-weight: 700; }
+.visit__error:empty { display: none; }
+
+.visit__ro-part h3 { margin: 12px 0 2px; font-size: 14px; }
+.visit__ro-part p { margin: 0; white-space: pre-wrap; word-break: break-word; }
+
+@media (max-width: 560px) {
+  .visit-card, .visit-services, .visit__form, .visit__readonly { padding: 14px; }
+  .visit__actions .btn { width: 100%; }
+}

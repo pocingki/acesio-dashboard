@@ -1,10 +1,10 @@
-// Integrasi Acesio -> Amnan (WhatsApp), kontrak v1 Amnan (lihat Amnan docs/INTEGRASI.md).
+// Integrasi Acesio -> WhatsApp (kontrak v1; lihat docs/INTEGRASI.md).
 //
 // Alurnya: saat terapis mencatat layanan, Acesio menaruh satu baris di antrean (integration_outbox) DALAM
-// transaksi yang sama dengan pencatatan, lalu pekerja latar mengirimnya ke Amnan. Amnan mati atau lambat
+// transaksi yang sama dengan pencatatan, lalu pekerja latar mengirimnya ke WhatsApp. Layanan WhatsApp mati atau lambat
 // tidak pernah menggagalkan pencatatan layanan; kiriman diulang otomatis dan bisa dikirim ulang manual.
 //
-// Yang dikirim ke Amnan: nama, No RM, jumlah kunjungan, waktu dan nama layanan terakhir. Catatan Medis,
+// Yang dikirim ke WhatsApp: nama, No RM, jumlah kunjungan, waktu dan nama layanan terakhir. SOAP,
 // komisi, dan data terapis TIDAK pernah dikirim.
 import crypto from 'node:crypto';
 import net from 'node:net';
@@ -47,7 +47,7 @@ const scopesOf = (S) => { try { const a = JSON.parse(S.scopes); return Array.isA
 
 const b64uJson = (s) => JSON.parse(Buffer.from(s, 'base64url').toString('utf8'));
 
-// Menerima "kode sambungan" Amnan (AMN1....) atau kunci akses polos (amk_...).
+// Menerima "kode sambungan" WhatsApp (AMN1....) atau kunci akses polos (amk_...).
 export function parseCode(raw) {
   const s = String(raw || '').trim().replace(/\s+/g, '');
   if (!s) return { url: '', key: '' };
@@ -56,10 +56,10 @@ export function parseCode(raw) {
       const d = b64uJson(s.slice(5));
       if (typeof d.k === 'string' && d.k) return { url: typeof d.u === 'string' ? d.u : '', key: d.k };
     } catch { /* jatuh ke galat di bawah */ }
-    throw new HttpError(400, 'Kode sambungan tidak bisa dibaca. Salin ulang kodenya dari Amnan.');
+    throw new HttpError(400, 'Kode sambungan tidak bisa dibaca. Salin ulang kodenya dari WhatsApp.');
   }
   if (/^amk_[A-Za-z0-9]{4,16}\.[A-Za-z0-9_-]{16,}$/.test(s)) return { url: '', key: s };
-  throw new HttpError(400, 'Kode tidak dikenali. Tempel "kode sambungan" atau "kunci akses" dari Amnan.');
+  throw new HttpError(400, 'Kode tidak dikenali. Tempel "kode sambungan" atau "kunci akses" dari WhatsApp.');
 }
 
 function privateHost(host) {
@@ -73,9 +73,9 @@ function privateHost(host) {
 
 export function cleanUrl(raw) {
   let u;
-  try { u = new URL(String(raw || '').trim()); } catch { throw new HttpError(400, 'Alamat Amnan tidak valid. Contoh: https://wa.klinikanda.id'); }
+  try { u = new URL(String(raw || '').trim()); } catch { throw new HttpError(400, 'Alamat server WhatsApp tidak valid. Contoh: https://wa.klinikanda.id'); }
   if (!/^https?:$/.test(u.protocol) || !u.hostname || u.username || u.password || u.search || u.hash) {
-    throw new HttpError(400, 'Alamat Amnan harus berbentuk https://... tanpa tambahan apa pun di belakangnya.');
+    throw new HttpError(400, 'Alamat server WhatsApp harus berbentuk https://... tanpa tambahan apa pun di belakangnya.');
   }
   if (u.hostname.startsWith('169.254.')) throw new HttpError(400, 'Alamat ini tidak diizinkan.');
   if (u.protocol === 'http:' && !privateHost(u.hostname)) {
@@ -84,7 +84,7 @@ export function cleanUrl(raw) {
   return `${u.origin}${u.pathname}`.replace(/\/+$/, '');
 }
 
-// ---------------------------------------------------------------- panggilan ke Amnan
+// ---------------------------------------------------------------- panggilan ke WhatsApp
 
 async function call({ url, key }, method, path, body, idem) {
   const headers = { Authorization: `Bearer ${key}`, Accept: 'application/json' };
@@ -104,28 +104,28 @@ async function call({ url, key }, method, path, body, idem) {
   return { network: false, status: res.status, json };
 }
 
-// Mengubah balasan Amnan menjadi keputusan: ok | retry (coba lagi nanti) | perm (gagal tetap) | skip.
+// Mengubah balasan WhatsApp menjadi keputusan: ok | retry (coba lagi nanti) | perm (gagal tetap) | skip.
 // link = masalah di sambungan itu sendiri, jadi sisa antrean juga ditunda.
 function classify(r) {
   const msg = r.json?.error ? String(r.json.error).slice(0, 200) : '';
-  if (r.network) return { retry: true, link: true, msg: 'Amnan tidak bisa dijangkau' };
+  if (r.network) return { retry: true, link: true, msg: 'Server WhatsApp tidak bisa dijangkau' };
   if (r.status >= 200 && r.status < 300) return { ok: true };
-  if (r.status >= 300 && r.status < 400) return { retry: true, link: true, msg: 'Alamat Amnan dialihkan ke tempat lain' };
-  if (r.status === 401) return { retry: true, link: true, msg: 'Kunci akses ditolak Amnan (salah atau sudah dicabut)', auth: true };
-  if (r.status === 403 && r.json?.code === 'BLOCKED') return { skip: true, msg: 'Nomor ini diblokir di Amnan' };
-  if (r.status === 429) return { retry: true, link: true, msg: 'Batas kirim harian Amnan tercapai' };
-  if (r.status === 503) return { retry: true, link: true, msg: 'WhatsApp di Amnan belum tersambung' };
-  if (r.status >= 500) return { retry: true, link: true, msg: 'Amnan sedang bermasalah' };
-  return { perm: true, msg: msg || `Ditolak Amnan (kode ${r.status})` };
+  if (r.status >= 300 && r.status < 400) return { retry: true, link: true, msg: 'Alamat server WhatsApp dialihkan ke tempat lain' };
+  if (r.status === 401) return { retry: true, link: true, msg: 'Kunci akses ditolak WhatsApp (salah atau sudah dicabut)', auth: true };
+  if (r.status === 403 && r.json?.code === 'BLOCKED') return { skip: true, msg: 'Nomor ini diblokir di WhatsApp' };
+  if (r.status === 429) return { retry: true, link: true, msg: 'Batas kirim harian WhatsApp tercapai' };
+  if (r.status === 503) return { retry: true, link: true, msg: 'WhatsApp belum tersambung' };
+  if (r.status >= 500) return { retry: true, link: true, msg: 'WhatsApp sedang bermasalah' };
+  return { perm: true, msg: msg || `Ditolak WhatsApp (kode ${r.status})` };
 }
 
 function friendlyTestError(r) {
-  if (r.network) return 'Amnan tidak bisa dijangkau di alamat itu. Pastikan alamatnya benar dan Amnan sedang menyala.';
-  if (r.status === 401) return 'Kunci akses ditolak Amnan. Salin ulang kode terbaru dari Amnan.';
+  if (r.network) return 'Server WhatsApp tidak bisa dijangkau di alamat itu. Pastikan alamatnya benar dan server WhatsApp sedang menyala.';
+  if (r.status === 401) return 'Kunci akses ditolak WhatsApp. Salin ulang kode terbaru dari WhatsApp.';
   if (r.status === 429) return 'Terlalu banyak percobaan. Tunggu beberapa menit lalu coba lagi.';
   if (r.status >= 300 && r.status < 400) return 'Alamat dialihkan ke tempat lain. Pakai alamat akhirnya (biasanya yang diawali https://).';
-  if (r.status >= 500) return 'Amnan menjawab dengan galat. Coba lagi sebentar lagi.';
-  return 'Alamat ini sepertinya bukan Amnan, atau versi Amnan-nya terlalu lama.';
+  if (r.status >= 500) return 'WhatsApp menjawab dengan galat. Coba lagi sebentar lagi.';
+  return 'Alamat ini sepertinya bukan server WhatsApp, atau versinya terlalu lama.';
 }
 
 // Uji sambungan (GET /api/v1/ping). Melempar HttpError berbahasa awam bila gagal.
@@ -150,12 +150,12 @@ const missingText = (m) => m.map((s) => SCOPE_LABEL[s] || s).join(', ');
 export async function connect({ code, url, key }) {
   const parsed = parseCode(code);
   const finalKey = parsed.key || String(key || '').trim();
-  if (!finalKey) throw new HttpError(400, 'Tempel kode sambungan dari Amnan.');
-  if (!parsed.key && !/^amk_[A-Za-z0-9]{4,16}\.[A-Za-z0-9_-]{16,}$/.test(finalKey)) throw new HttpError(400, 'Kunci akses tidak dikenali. Salin ulang dari Amnan.');
+  if (!finalKey) throw new HttpError(400, 'Tempel kode sambungan dari WhatsApp.');
+  if (!parsed.key && !/^amk_[A-Za-z0-9]{4,16}\.[A-Za-z0-9_-]{16,}$/.test(finalKey)) throw new HttpError(400, 'Kunci akses tidak dikenali. Salin ulang dari WhatsApp.');
   const finalUrl = cleanUrl(String(url || '').trim() || parsed.url);
   const info = await ping({ url: finalUrl, key: finalKey });
   const missing = missingOf(info.scopes);
-  if (missing.length) throw new HttpError(400, `Kunci ini belum boleh ${missingText(missing)}. Minta admin Amnan memberi izin itu, atau buat kunci baru.`);
+  if (missing.length) throw new HttpError(400, `Kunci ini belum boleh ${missingText(missing)}. Minta admin WhatsApp memberi izin itu, atau buat kunci baru.`);
   const S = readAll();
   write({
     amnan_url: finalUrl, api_key: seal(finalKey), brand: info.brand, wa_status: info.wa, scopes: JSON.stringify(info.scopes),
@@ -169,7 +169,7 @@ export async function connect({ code, url, key }) {
 export async function retest() {
   const S = readAll();
   const key = open(S.api_key);
-  if (!key) throw new HttpError(409, 'Belum tersambung ke Amnan.');
+  if (!key) throw new HttpError(409, 'Belum tersambung ke WhatsApp.');
   try {
     const info = await ping({ url: S.amnan_url, key });
     write({ brand: info.brand, wa_status: info.wa, scopes: JSON.stringify(info.scopes), tested_at: new Date().toISOString(), last_error: '', last_ok_at: new Date().toISOString() });
@@ -205,12 +205,12 @@ export function update(patch) {
   }
   if (patch.enabled !== undefined) {
     next.enabled = bool(patch.enabled, 'enabled');
-    if (next.enabled === '1' && !connected) throw new HttpError(409, 'Sambungkan ke Amnan dulu sebelum menyalakan.');
+    if (next.enabled === '1' && !connected) throw new HttpError(409, 'Sambungkan ke WhatsApp dulu sebelum menyalakan.');
   }
   const merged = { ...S, ...next };
   if (merged.send_thanks === '1') {
     if (merged.send_visit !== '1') throw new HttpError(400, 'Ucapan terima kasih butuh "Catat kunjungan" menyala.');
-    if (!scopesOf(merged).includes('messages:send')) throw new HttpError(400, 'Kunci akses ini belum boleh mengirim pesan WhatsApp. Minta admin Amnan menambah izinnya.');
+    if (!scopesOf(merged).includes('messages:send')) throw new HttpError(400, 'Kunci akses ini belum boleh mengirim pesan WhatsApp. Minta admin WhatsApp menambah izinnya.');
   }
   write(next);
   return Object.keys(next);
@@ -264,7 +264,7 @@ async function runStep(name, row, p, cfg, S) {
       data: { rmNo: String(p.rm || ''), services: (p.services || []).length },
     }, idem(`-${s}`));
     let r = await send(slug);
-    // Amnan hanya menerima kejadian berawalan nama aplikasi milik kunci. Bila beda dari bawaan, ikuti dan ingat.
+    // WhatsApp hanya menerima kejadian berawalan nama aplikasi milik kunci. Bila beda dari bawaan, ikuti dan ingat.
     const m = r.status === 403 && r.json?.code === 'FORBIDDEN_SCOPE' && /berawalan "([a-z][a-z0-9-]*)\./.exec(String(r.json?.error || ''));
     if (m && m[1] !== slug) {
       write({ app_slug: m[1] });
@@ -320,7 +320,7 @@ export async function tick() {
       const row = db.prepare("SELECT * FROM integration_outbox WHERE status = 'pending' AND next_at <= ? ORDER BY id LIMIT 1").get(Date.now());
       if (!row) break;
       const r = await deliver(row, cfg, readAll());
-      if (r.link) break; // sambungan bermasalah: jangan menghantam Amnan dengan sisa antrean
+      if (r.link) break; // sambungan bermasalah: jangan menghantam WhatsApp dengan sisa antrean
     }
     db.prepare("DELETE FROM integration_outbox WHERE status IN ('sent','skipped') AND created_at < ?").run(new Date(Date.now() - 30 * 86_400_000).toISOString());
   } catch (err) {
@@ -392,7 +392,7 @@ export function state() {
     tested_at: S.tested_at, last_error: S.last_error,
     send_visit: S.send_visit === '1', send_thanks: S.send_thanks === '1', thanks_text: S.thanks_text,
     stats, recent,
-    // Arah sebaliknya (Amnan membaca data customer Acesio) memakai BOT_API_KEY di .env.
+    // Arah sebaliknya (WhatsApp membaca data customer Acesio) memakai BOT_API_KEY di .env.
     amnan_can_read: !!process.env.BOT_API_KEY,
   };
 }

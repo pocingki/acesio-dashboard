@@ -13,7 +13,7 @@ export const db = new DatabaseSync(path.join(dataDir, 'acesio.db'));
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
 
 // Data customer berasal dari upload/input admin. No RM unik dan dipakai user untuk mencocokkan customer.
-// origin: 'awal' = data awal (upload/tambahan admin), 'baru' = customer baru yang dilaporkan user lalu dimasukkan admin.
+// origin: 'awal' = data awal (hasil upload admin/supervisor), 'baru' = customer yang ditambahkan lewat "Tambah customer" setelah data awal masuk.
 const customersDdl = (target) => `CREATE TABLE ${target} (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   rm_no TEXT COLLATE NOCASE,
@@ -182,7 +182,7 @@ if (!hasRm) {
 }
 db.exec(INDEXES);
 
-// Migrasi kolom Catatan Medis (diisi admin/supervisor). Aman dijalankan berulang: hanya menambah kolom bila belum ada,
+// Migrasi kolom SOAP pada tabel Customer, kolom medical_note (diisi admin/supervisor). Aman dijalankan berulang: hanya menambah kolom bila belum ada,
 // semua customer lama mendapat catatan kosong.
 if (!db.prepare("SELECT 1 FROM pragma_table_info('customers') WHERE name = 'medical_note'").get()) {
   db.exec("ALTER TABLE customers ADD COLUMN medical_note TEXT NOT NULL DEFAULT ''");
@@ -206,7 +206,12 @@ if (db.prepare('PRAGMA user_version').get().user_version < SCHEMA_VERSION) {
   db.exec(AUDIT_INDEXES);
 }
 
-// Integrasi ke Amnan (WhatsApp): pengaturan sederhana dan antrean kirim. Selalu IF NOT EXISTS,
+// Profil akun: data diri dan foto. Hanya menambah kolom yang belum ada (aman dijalankan berulang).
+for (const [col, ddl] of [['phone', "TEXT NOT NULL DEFAULT ''"], ['email', "TEXT NOT NULL DEFAULT ''"], ['birth_date', "TEXT NOT NULL DEFAULT ''"], ['address', "TEXT NOT NULL DEFAULT ''"], ['photo', 'TEXT']]) {
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = ?").get(col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} ${ddl}`);
+}
+
+// Integrasi ke WhatsApp (WhatsApp): pengaturan sederhana dan antrean kirim. Selalu IF NOT EXISTS,
 // jadi aman dijalankan berulang dan tidak mengubah nomor versi skema.
 db.exec(`
 CREATE TABLE IF NOT EXISTS integration_settings (
@@ -230,6 +235,51 @@ CREATE TABLE IF NOT EXISTS integration_outbox (
   sent_at TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_outbox_due ON integration_outbox(status, next_at);
+`);
+
+// Jadwal kunjungan customer yang diisi admin/supervisor untuk user (terapis), beserta layanan yang akan dikerjakan
+// dan notifikasi untuk user. Selalu IF NOT EXISTS dan tidak mengubah nomor versi skema.
+// Kolom soap_* menyimpan SOAP kunjungan (diisi user di Fase 4); isinya tidak pernah masuk log audit.
+db.exec(`
+CREATE TABLE IF NOT EXISTS schedules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  customer_id INTEGER NOT NULL REFERENCES customers(id),
+  day TEXT NOT NULL,
+  start_time TEXT NOT NULL,
+  end_time TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'baru' CHECK (status IN ('baru','berjalan','selesai','batal')),
+  created_by INTEGER NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT '',
+  started_at TEXT NOT NULL DEFAULT '',
+  completed_at TEXT NOT NULL DEFAULT '',
+  batch TEXT NOT NULL DEFAULT '',
+  soap_s TEXT NOT NULL DEFAULT '',
+  soap_o TEXT NOT NULL DEFAULT '',
+  soap_a TEXT NOT NULL DEFAULT '',
+  soap_p TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS schedule_services (
+  schedule_id INTEGER NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+  service_id INTEGER NOT NULL REFERENCES services(id),
+  PRIMARY KEY (schedule_id, service_id)
+);
+CREATE INDEX IF NOT EXISTS idx_schedules_user_day ON schedules(user_id, day);
+CREATE INDEX IF NOT EXISTS idx_schedules_day ON schedules(day);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  schedule_id INTEGER REFERENCES schedules(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  read_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, id);
 `);
 
 // 29 kotak layanan tetap; supervisor mengubah nama dan fotonya.

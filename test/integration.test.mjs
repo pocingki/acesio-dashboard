@@ -1,15 +1,15 @@
-// Tes menu Integrasi: Acesio -> Amnan, memakai Amnan tiruan (server HTTP kecil) dan server Acesio sungguhan.
+// Tes menu Integrasi: Acesio -> WhatsApp, memakai WhatsApp tiruan (server HTTP kecil) dan server Acesio sungguhan.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { startServer } from './helpers.mjs';
+import { startServer, createVisit, VALID_SOAP } from './helpers.mjs';
 
 const KEY = 'amk_ab12cd34.' + 'x'.repeat(43);
 const MEDICAL = 'RIWAYAT-MEDIS-RAHASIA';
 
-// ---------- Amnan tiruan ----------
+// ---------- WhatsApp tiruan ----------
 const fake = { seen: [], scopes: ['leads:write', 'events:write', 'messages:send'], slug: 'acesio', down: 0, rejectContacts: 0 };
 const amnan = http.createServer((req, res) => {
   let raw = '';
@@ -36,7 +36,7 @@ const AMNAN_URL = `http://127.0.0.1:${amnan.address().port}`;
 const code = 'AMN1.' + Buffer.from(JSON.stringify({ u: AMNAN_URL, k: KEY, w: 'whsec_x', l: 'link' })).toString('base64url');
 
 // ---------- Acesio ----------
-let srv; let sv; let therapist;
+let srv; let sv; let therapist; let therapistId;
 const post = (p, body, who = sv, method = 'POST') => srv.call(p, { method, body, cookie: who.cookie });
 const state = async () => (await srv.call('/api/sv/integration', { cookie: sv.cookie })).json;
 const waitFor = async (fn, ms = 8000) => {
@@ -55,13 +55,18 @@ async function newCustomer({ phone = '0812-3456-7001', name = 'Siti Aminah' } = 
   assert.equal(r.status, 200, r.text);
   return rmNo;
 }
-const visit = (rmNo, ids = [1, 2]) => post('/api/records', { customer_rm: rmNo, service_ids: ids }, therapist);
+// Fase 4: kunjungan = jadwal hari ini (dibuat supervisor) lalu diselesaikan terapis dengan SOAP.
+const visit = async (rmNo, ids = [1, 2]) => {
+  const sch = await createVisit(srv, sv.cookie, { userId: therapistId, customerRm: rmNo, serviceIds: ids });
+  return post('/api/records', { schedule_id: sch.id, soap: VALID_SOAP }, therapist);
+};
 
 before(async () => {
   srv = await startServer({ env: { BOT_API_KEY: 'kunci-bot-uji-1234567890' } });
   sv = await srv.login();
   const r = await post('/api/sv/accounts', { username: 'terapis1', name: 'Terapis Satu', password: 'Password-Terapis-1', role: 'user' });
   assert.equal(r.status, 200, r.text);
+  therapistId = r.json.id;
   therapist = await srv.login('terapis1', 'Password-Terapis-1');
   await post('/api/sv/services/1', { name: 'Fisioterapi' }, sv, 'PATCH');
   await post('/api/sv/services/2', { name: 'Terapi Latihan' }, sv, 'PATCH');
@@ -126,7 +131,7 @@ test('sambung lewat satu kode: alamat terisi dari kode, kunci tidak pernah kemba
   assert.ok(db && dump.includes('integration.connect'));
 });
 
-test('kunjungan terkirim ke Amnan: data pelanggan + catatan kejadian, tanpa catatan medis', async () => {
+test('kunjungan terkirim ke WhatsApp: data pelanggan + catatan kejadian, tanpa SOAP', async () => {
   fake.seen.length = 0;
   assert.equal((await post('/api/sv/integration', { enabled: true }, sv, 'PUT')).json.status, 'on');
   const rmNo = await newCustomer();
@@ -145,7 +150,15 @@ test('kunjungan terkirim ke Amnan: data pelanggan + catatan kejadian, tanpa cata
   assert.equal(ev.body.type, 'acesio.visit_recorded');
   assert.match(ev.body.summary, /Fisioterapi, Terapi Latihan/);
   assert.ok(put.idem && ev.idem && put.idem !== ev.idem);
-  assert.ok(!JSON.stringify(fake.seen).includes(MEDICAL), 'catatan medis bocor ke Amnan');
+  assert.ok(!JSON.stringify(fake.seen).includes(MEDICAL), 'SOAP bocor ke WhatsApp');
+  // SOAP kunjungan tidak pernah dikirim ke WhatsApp (D10): tidak di permintaan keluar maupun di antrean (outbox).
+  const outbox = new DatabaseSync(path.join(srv.dataDir, 'acesio.db'));
+  const queued = JSON.stringify(outbox.prepare('SELECT * FROM integration_outbox').all());
+  outbox.close();
+  for (const text of Object.values(VALID_SOAP)) {
+    assert.ok(!JSON.stringify(fake.seen).includes(text), `SOAP bocor ke WhatsApp: ${text}`);
+    assert.ok(!queued.includes(text), `SOAP bocor ke outbox: ${text}`);
+  }
   assert.equal(fake.seen.length, 2, 'ucapan terima kasih mati secara bawaan');
 
   const s = await waitFor(async () => { const x = await state(); return x.stats.sent_24h === 1 && x; });
@@ -153,7 +166,7 @@ test('kunjungan terkirim ke Amnan: data pelanggan + catatan kejadian, tanpa cata
   assert.equal(s.recent[0].status, 'sent');
 });
 
-test('awalan kejadian mengikuti nama aplikasi pada kunci Amnan (menyesuaikan diri sekali)', async () => {
+test('awalan kejadian mengikuti nama aplikasi pada kunci WhatsApp (menyesuaikan diri sekali)', async () => {
   fake.seen.length = 0;
   fake.slug = 'klinik';
   await visit(await newCustomer({ phone: '0812-3456-7002', name: 'Budi' }));
@@ -183,12 +196,12 @@ test('ucapan terima kasih: opsional, {nama} terisi, hanya sekali per pelanggan p
   await post('/api/sv/integration', { send_thanks: false }, sv, 'PUT');
 });
 
-test('Amnan mati: pencatatan tetap berhasil, kiriman menunggu lalu terkirim; gagal tetap bisa dikirim ulang', async () => {
+test('WhatsApp mati: pencatatan tetap berhasil, kiriman menunggu lalu terkirim; gagal tetap bisa dikirim ulang', async () => {
   fake.seen.length = 0;
   fake.down = 1000;
   const rmNo = await newCustomer({ phone: '0812-3456-7005', name: 'Agus' });
   const r = await visit(rmNo);
-  assert.equal(r.status, 200, 'pencatatan layanan tidak boleh gagal karena Amnan mati');
+  assert.equal(r.status, 200, 'pencatatan layanan tidak boleh gagal karena WhatsApp mati');
   const s = await waitFor(async () => { const x = await state(); return x.stats.pending === 1 && x.recent[0].error && x; });
   assert.match(s.recent[0].error, /belum tersambung/);
   fake.down = 0;

@@ -1,0 +1,61 @@
+/* Beranda user (Fase 7). Memakai variabel :root dari app.css. */
+.home { display: grid; gap: 16px; max-width: 640px; }
+.home__retry { display: flex; justify-content: center; margin-top: 4px; }
+
+.home-hero, .home-next {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  background: #fff; border: 1.5px solid var(--line); border-radius: 12px;
+  color: var(--ink); transition: border-color .15s, background .15s;
+}
+.home-hero:hover, .home-next:hover { border-color: var(--blue-200); background: var(--blue-50); }
+
+.home-hero { display: flex; align-items: center; gap: 20px; padding: 24px; }
+.home-hero__num { font-family: var(--serif); font-size: 64px; line-height: 1; font-weight: 700; color: var(--blue-800); font-variant-numeric: tabular-nums; min-width: 1ch; }
+.home-hero__text { display: grid; gap: 2px; }
+.home-hero__label { font-size: 18px; font-weight: 700; }
+.home-hero__hint { font-size: 14px; color: var(--blue-700); font-weight: 600; }
+
+.home-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 0; }
+.home-stat { background: #fff; border: 1.5px solid var(--line); border-radius: 12px; padding: 14px 12px; display: flex; flex-direction: column-reverse; gap: 2px; }
+.home-stat__num { margin: 0; font-family: var(--serif); font-size: 28px; line-height: 1.1; font-weight: 700; font-variant-numeric: tabular-nums; }
+.home-stat__label { font-size: 13px; color: var(--muted); font-weight: 600; }
+
+.home-next { display: grid; gap: 4px; padding: 18px 20px; }
+.home-next--empty { cursor: default; background: #fff; }
+.home-next--empty:hover { border-color: var(--line); background: #fff; }
+.home-next__head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 4px; }
+.home-next__kicker { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.home-next__time { font-family: var(--serif); font-size: 26px; font-weight: 700; color: var(--blue-800); font-variant-numeric: tabular-nums; }
+.home-next__name { font-size: 18px; font-weight: 700; }
+.home-next__meta, .home-next__svc { font-size: 14px; color: var(--muted); }
+
+@media (max-width: 520px) {
+  .home-hero { padding: 20px; gap: 16px; }
+  .home-hero__num { font-size: 56px; }
+  .home-stat { padding: 12px 10px; }
+  .home-stat__num { font-size: 24px; }
+}
+@media (forced-colors: active) {
+  .home-hero, .home-next, .home-stat { border: 1.5px solid CanvasText; }
+}
+
+/* Tab user (tepat 4 tab) di layar sempit: dibagi rata, label boleh dua baris, tidak ada yang terpotong. */
+@media (max-width: 560px) {
+  .tabs:has(.tab:nth-child(4)):not(:has(.tab:nth-child(5))) {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 2px;
+    overflow-x: visible;
+  }
+  .tabs:has(.tab:nth-child(4)):not(:has(.tab:nth-child(5))) .tab {
+    padding: 4px;
+    height: auto;
+    min-height: 40px;
+    justify-content: center;
+    font-size: .8125rem;
+    line-height: 1.2;
+    text-align: center;
+    white-space: normal;
+    border-radius: 14px;
+  }
+}

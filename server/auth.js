@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { db } from './db.js';
 import { HttpError } from './util.js';
 import { createLimiter } from './ratelimit.js';
+import { isWithinAccess, accessMessage } from './clock.js';
 
 const COOKIE = 'acesio_sid';
 const MAX_SESSIONS_PER_USER = 10;
@@ -165,6 +166,9 @@ export async function login(username, password, { ip } = {}) {
   }
 
   userLimiter.reset(userKey);
+  // Password sudah terbukti benar: baru sekarang jam akses diperiksa (tidak membocorkan info jam ke penebak
+  // password, tidak dihitung sebagai login gagal, dan tidak membuat sesi).
+  if (user.role === 'user' && !isWithinAccess()) throw new HttpError(403, accessMessage(), 'OUTSIDE_HOURS');
   const token = crypto.randomBytes(32).toString('hex');
   const now = Date.now();
   db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(sha(token), user.id, now + sessionMs());
@@ -238,7 +242,7 @@ export function sessionUser(req) {
   const token = parseCookies(req.headers?.cookie)[COOKIE];
   if (!token) return null;
   const row = db.prepare(`
-    SELECT u.id, u.username, u.name, u.role FROM sessions s
+    SELECT u.id, u.username, u.name, u.role, u.photo FROM sessions s
     JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = ? AND s.expires_at > ? AND u.active = 1
   `).get(sha(token), Date.now());

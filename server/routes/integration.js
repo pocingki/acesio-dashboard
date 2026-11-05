@@ -1,4 +1,4 @@
-// Menu Integrasi (khusus supervisor): sambungkan Acesio ke Amnan (WhatsApp), pilih yang dikirim, nyalakan.
+// Menu Integrasi (khusus supervisor): sambungkan Acesio ke WhatsApp, pilih yang dikirim, nyalakan.
 // Kunci akses tidak pernah dikembalikan ke browser; yang tampil hanya petunjuk samar (amk_xxxx.••••).
 import { add } from './index.js';
 import { HttpError } from '../util.js';

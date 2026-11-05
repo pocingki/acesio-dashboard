@@ -21,7 +21,7 @@ export function add(method, pattern, access, handler, opts = {}) {
   routes.push({ method, pattern, rx, keys, access, handler, limit: opts.limit });
 }
 
-const ROUTE_FILES = ['auth', 'records', 'history', 'staff-report', 'staff-customers', 'sv', 'integration', 'bot'];
+const ROUTE_FILES = ['auth', 'records', 'history', 'staff-report', 'staff-customers', 'staff-schedules', 'my-schedules', 'my-notifications', 'my-home', 'sv', 'integration', 'bot'];
 
 export async function loadRoutes() {
   for (const f of ROUTE_FILES) await import(`./${f}.js`);

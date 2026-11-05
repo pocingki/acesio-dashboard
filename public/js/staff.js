@@ -9,25 +9,36 @@ import {
   customersView, createGate, downloadButton, tableWrap, pagerNodes, rangeLabel, NO_CTX,
 } from './customers.js';
 import { auditView } from './audit.js';
-import { integrationButton } from './integration.js';
+import { integrationItem } from './integration.js';
 import { groupRecords, customerGroups } from './groups.js';
+import { scheduleView } from './schedules.js';
 
 const isAbort = (e) => e?.name === 'AbortError';
 const ATT_PAGE_SIZE = 50;
 
 export function renderStaffApp(root, user, { onLogout }) {
   const sv = user.role === 'supervisor';
-  const tabs = [{ id: 'report', label: 'Laporan' }, { id: 'customers', label: 'Customer' }];
-  if (sv) tabs.push({ id: 'services', label: 'Pengaturan Layanan' }, { id: 'accounts', label: 'Akun User' }, { id: 'audit', label: 'Log Audit' });
+  const tabs = [{ id: 'report', label: 'Laporan' }, { id: 'customers', label: 'Customer' }, { id: 'schedule', label: 'Jadwal' }];
+  if (sv) {
+    tabs.push({
+      label: 'Pengaturan',
+      items: [
+        { id: 'services', label: 'Pengaturan Layanan', desc: 'Nama, foto, dan komisi layanan' },
+        { id: 'accounts', label: 'Akun User', desc: 'Pengguna dan hak akses' },
+        integrationItem(),
+        { id: 'audit', label: 'Log Audit', desc: 'Riwayat aktivitas pengguna' },
+      ],
+    });
+  }
   const shell = createShell({
     user, onLogout, tabs,
-    actions: sv ? [integrationButton()] : [],
     // ctx = { signal, isCurrent() } dari shell.select; NO_CTX hanya cadangan bila shell lama.
     onSelect: (id, main, ctx) => {
       const c = ctx || NO_CTX;
       closeAllModals();
       if (id === 'report') reportView(main, user, c);
       else if (id === 'customers') customersView(main, user, c);
+      else if (id === 'schedule') scheduleView(main, user, c);
       else if (id === 'services') settingsView(main, c);
       else if (id === 'audit' && sv) auditView(main, c);
       else if (id === 'accounts' && sv) accountsView(main, user, c);
@@ -64,7 +75,7 @@ function reportView(main, user, ctx) {
   const gate = createGate(ctx); // ringkasan, grafik, data user
   const attGate = createGate(ctx); // Laporan Kinerja (berhalaman)
   // Default: hanya hari ini. Kosongkan tanggal untuk melihat keseluruhan.
-  const todayStr = todayInTz();
+  let todayStr = todayInTz();
   const from = h('input', { class: 'input', type: 'date', value: todayStr });
   const to = h('input', { class: 'input', type: 'date', value: todayStr });
   const rangeMsg = h('p', { class: 'error range-msg', role: 'alert' });
@@ -158,7 +169,7 @@ function reportView(main, user, ctx) {
       chartsBox.replaceChildren(
         donutCard({ title: 'Kunjungan', subtitle: 'Per terapis · periode terpilih', unit: 'kunjungan', data: charts.visits }),
         donutCard({ title: 'Layanan', subtitle: 'Pemakaian layanan · periode terpilih', unit: 'layanan', data: charts.services }),
-        donutCard({ title: 'New customer', subtitle: 'Data awal vs customer baru · seluruh data', unit: 'customer', data: charts.customers }),
+        donutCard({ title: 'New customer', subtitle: 'Angka tengah = customer baru pada periode terpilih (default hari ini)', unit: 'customer', centerUnit: 'baru', data: charts.customers }),
         donutCard({ title: 'Jenis kelamin', subtitle: 'Seluruh data customer', unit: 'customer', data: charts.gender }));
 
       attChips.replaceChildren(h('div', { class: 'summary-chips' },
@@ -259,6 +270,20 @@ function reportView(main, user, ctx) {
     usersBox);
   syncQuick();
   loadAll();
+
+  // Angka "New customer" mengikuti customer baru secara otomatis: muat ulang berkala selama tab ini tampil,
+  // dan saat tab browser kembali aktif. Bila periode masih default "hari ini" dan tanggal berganti (lewat tengah malam),
+  // periode ikut maju ke hari yang baru.
+  const refresh = () => {
+    if (document.hidden || !ctx.isCurrent()) return;
+    const was = todayStr;
+    const now = todayInTz();
+    if (now !== was) { todayStr = now; if (from.value === was && to.value === was) { from.value = now; to.value = now; syncQuick(); } }
+    if (!checkRange()) loadAll();
+  };
+  const timer = setInterval(refresh, 30000);
+  document.addEventListener('visibilitychange', refresh, { signal: ctx.signal });
+  ctx.signal.addEventListener('abort', () => clearInterval(timer), { once: true });
 }
 
 // ======================= DETAIL USER + APPROVE =======================

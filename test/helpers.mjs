@@ -20,6 +20,7 @@ function buildEnv(tmp, dataDir, overrides) {
   Object.assign(env, {
     HOME: tmp, PORT: '0', HOST: '127.0.0.1', DATA_DIR: dataDir,
     ADMIN_USERNAME: ADMIN.username, ADMIN_PASSWORD: ADMIN.password,
+    ACCESS_HOURS: 'off', // tes lama tidak boleh bergantung pada jam; tes jam akses menimpanya lewat `env`
   });
   for (const [k, v] of Object.entries(overrides)) {
     if (v === undefined || v === null) delete env[k]; // env: { ADMIN_PASSWORD: undefined } = hapus
@@ -112,4 +113,25 @@ export async function startServer({ env = {} } = {}) {
   }
 
   return { base, port, dataDir, child, call, login, raw, stop, output: () => out };
+}
+
+// ---------- jadwal (Fase 4) ----------
+// Isi SOAP yang sah untuk tes. Dipakai juga untuk memeriksa bahwa SOAP tidak bocor ke tempat lain.
+export const VALID_SOAP = { s: 'Nyeri bahu kanan', o: 'ROM terbatas', a: 'Frozen shoulder', p: 'Latihan 2x seminggu' };
+
+// Tanggal hari ini pada zona waktu bisnis (APP_TZ; bawaan Asia/Jakarta, sama dengan server tes).
+const tzFmt = new Intl.DateTimeFormat('en-CA', { timeZone: process.env.APP_TZ || 'Asia/Jakarta' });
+export const todayYmd = (offsetDays = 0) => tzFmt.format(new Date(Date.now() + offsetDays * 86400000));
+
+// Membuat jadwal lewat API staff (cookie admin/supervisor) dan mengembalikan objek `schedule`.
+// Wajib: userId dan salah satu dari customerId / customerRm. Bawaan: hari ini, layanan [1], jam 09:00.
+export async function createVisit(srv, staffCookie, {
+  userId, customerId, customerRm, serviceIds = [1], day = todayYmd(), startTime = '09:00', endTime = '10:00', note = '',
+} = {}) {
+  const body = { user_id: userId, service_ids: serviceIds, day, start_time: startTime, end_time: endTime, note };
+  if (customerId !== undefined) body.customer_id = customerId;
+  if (customerRm !== undefined) body.customer_rm = customerRm;
+  const r = await srv.call('/api/staff/schedules', { method: 'POST', body, cookie: staffCookie });
+  if (r.status !== 200) throw new Error(`createVisit gagal (${r.status}): ${r.text}`);
+  return r.json.schedule;
 }

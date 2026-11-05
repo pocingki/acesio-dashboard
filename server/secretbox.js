@@ -1,4 +1,4 @@
-// Menyimpan rahasia (mis. kunci akses Amnan) terenkripsi di database.
+// Menyimpan rahasia (mis. kunci akses WhatsApp) terenkripsi di database.
 // Kunci enkripsi dibuat otomatis sekali di DATA_DIR/integration.key (izin 600), terpisah dari acesio.db,
 // jadi salinan database saja (backup, kiriman ke orang lain) tidak membuka rahasianya.
 // AES-256-GCM; format tersimpan: v1.<iv>.<tag>.<data> (base64url).

@@ -22,6 +22,7 @@ const force = process.argv.includes('--force');
 const { db, tx } = await import('../server/db.js');
 const { hashPassword } = await import('../server/auth.js');
 const { ymd } = await import('../server/clock.js');
+const { createSchedule, startSchedule, completeSchedule, cancelSchedule } = await import('../server/schedules.js');
 
 const count = (sql) => db.prepare(sql).get().n;
 const problems = [];
@@ -60,10 +61,20 @@ const hashes = new Map();
 for (const [username] of staff) {
   if (!db.prepare('SELECT 1 FROM users WHERE username = ?').get(username)) hashes.set(username, await hashPassword(demoPassword));
 }
+// Jadwal butuh akun staf sebagai pembuatnya (created_by). Supervisor biasanya dibuat server saat pertama jalan;
+// bila seed dijalankan lebih dulu, seed membuatnya dengan aturan yang sama (ADMIN_USERNAME / ADMIN_PASSWORD).
+const needSupervisor = !db.prepare("SELECT 1 FROM users WHERE role = 'supervisor'").get();
+const supervisorName = process.env.ADMIN_USERNAME || 'admin';
+const supervisorPassword = process.env.ADMIN_PASSWORD || demoPassword;
+const supervisorHash = needSupervisor ? await hashPassword(supervisorPassword) : null;
 const created = [];
 
 tx(() => {
   const now = Date.now();
+  if (needSupervisor) {
+    db.prepare("INSERT INTO users (username, name, password_hash, role, active, created_at) VALUES (?, 'Supervisor', ?, 'supervisor', 1, ?)")
+      .run(supervisorName, supervisorHash, new Date(now).toISOString());
+  }
   services.forEach(([name], i) => db.prepare('UPDATE services SET name = ? WHERE position = ?').run(name, i + 1));
   const userIds = staff.map(([username, name, employment, factor]) => {
     const row = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
@@ -99,6 +110,54 @@ tx(() => {
   }
 });
 
+// ---------- jadwal demo ----------
+// Dibuat lewat fungsi layanan yang sama dengan API (bukan SQL mentah) supaya konsisten dengan kontrak:
+// layanan ada di schedule_services, jadwal selesai menyimpan batch record dan SOAP, notifikasi awal dan audit ikut terbuat.
+// Jadwal hari ini untuk tiap user demo (jam berbeda, 1 sampai 3 layanan, campuran status), satu jadwal besok, satu jadwal batal.
+const SOAP_CONTOH = {
+  s: 'Nyeri lutut kanan saat naik tangga sejak dua minggu, membaik bila istirahat.',
+  o: 'Fleksi lutut 110 derajat, nyeri tekan sisi medial, tidak ada bengkak atau kemerahan.',
+  a: 'Dugaan strain ligamen medial derajat ringan.',
+  p: 'Terapi manual dan latihan penguatan paha dua kali seminggu, evaluasi ulang dalam dua minggu.',
+};
+const scheduleSummary = { hariIni: 0, besok: 0, batal: 0, selesai: 0, berjalan: 0, baru: 0 };
+tx(() => {
+  const staffActor = db.prepare("SELECT id, name, role FROM users WHERE role = 'supervisor' ORDER BY id LIMIT 1").get();
+  const serviceIds = db.prepare('SELECT id FROM services ORDER BY position').all().map((r) => r.id);
+  const customerIds = names.map((_, i) => db.prepare('SELECT id FROM customers WHERE rm_no = ?').get(`RM-${1001 + i}`).id);
+  const workers = staff.map(([username, name]) => ({ ...db.prepare('SELECT id, name FROM users WHERE username = ?').get(username), role: 'user' }));
+  const today = ymd();
+  const tomorrow = ymd(new Date(Date.now() + 86400000));
+
+  // [pekerja, jam mulai, jam selesai, indeks customer, layanan (posisi 1..), status akhir]
+  const plan = [
+    [0, '08:00', '09:00', 0, [1, 2], 'selesai'],
+    [0, '10:30', '11:30', 1, [3], 'berjalan'],
+    [0, '14:00', '15:30', 2, [4, 5, 6], 'baru'],
+    [1, '08:30', '09:30', 3, [2], 'selesai'],
+    [1, '11:00', '12:00', 4, [1, 7], 'baru'],
+    [1, '15:00', '16:00', 5, [6, 8], 'baru'],
+    [2, '09:30', '10:30', 6, [5], 'berjalan'],
+    [2, '13:00', '14:00', 7, [3, 4], 'baru'],
+    [2, '16:00', '17:00', 8, [1], 'batal'],
+  ];
+  const make = (w, day, start, end, cust, pos, note = '') => createSchedule({
+    user_id: workers[w].id, customer_id: customerIds[cust], service_ids: pos.map((p) => serviceIds[p - 1]),
+    day, start_time: start, end_time: end, note,
+  }, staffActor, '');
+
+  for (const [w, start, end, cust, pos, status] of plan) {
+    const sch = make(w, today, start, end, cust, pos, status === 'baru' && cust === 2 ? 'Customer lama, mulai dari evaluasi keluhan terakhir.' : '');
+    scheduleSummary.hariIni += 1;
+    if (status === 'berjalan' || status === 'selesai') startSchedule({ user: workers[w], id: sch.id });
+    if (status === 'selesai') completeSchedule({ user: workers[w], scheduleId: sch.id, soap: SOAP_CONTOH });
+    if (status === 'batal') cancelSchedule(sch.id, staffActor, '');
+    scheduleSummary[status] += 1;
+  }
+  make(0, tomorrow, '09:00', '10:00', 9, [1, 4]);
+  scheduleSummary.besok += 1;
+});
+
 console.log('\n  Data contoh dibuat.');
 if (created.length) {
   console.log(`  Akun baru   : ${created.join(', ')}`);
@@ -106,3 +165,9 @@ if (created.length) {
 } else {
   console.log('  Tidak ada akun baru (sari/budi/dewi sudah ada, password mereka tidak diubah).\n');
 }
+if (needSupervisor) {
+  console.log(`  Supervisor  : ${supervisorName} (dibuat seed karena belum ada)`);
+  console.log(process.env.ADMIN_PASSWORD ? '  Password    : sesuai ADMIN_PASSWORD\n' : `  Password    : sama dengan password akun demo di atas\n`);
+}
+console.log(`  Jadwal      : ${scheduleSummary.hariIni} untuk hari ini (${scheduleSummary.baru} baru, ${scheduleSummary.berjalan} berjalan, ${scheduleSummary.selesai} selesai, ${scheduleSummary.batal} batal), ${scheduleSummary.besok} untuk besok.`);
+console.log('  Jadwal yang berjalan/selesai membuat notifikasi dan record layanan; jadwal baru siap dijalankan dari akun user demo.\n');

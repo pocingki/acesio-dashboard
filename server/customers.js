@@ -3,13 +3,13 @@ import { HttpError, normalizePhone, cleanName } from './util.js';
 import { readTable } from './importer.js';
 import { resolveReference } from './platforms.js';
 
-// Urutan kolom baku (impor, ekspor, dan tabel Customer): No | No RM | Reimburse | Nama | Jenis Kelamin | Tgl Lahir | No WA | Pekerjaan | Domisili | Bulan | Referensi | Catatan Medis
-export const CUSTOMER_HEADERS = ['No', 'No RM', 'Reimburse', 'Nama', 'Jenis Kelamin', 'Tgl Lahir', 'No WA', 'Pekerjaan', 'Domisili', 'Bulan', 'Referensi', 'Catatan Medis'];
+// Urutan kolom baku (impor, ekspor, dan tabel Customer): No | No RM | Reimburse | Nama | Jenis Kelamin | Tgl Lahir | No WA | Pekerjaan | Domisili | Bulan | Referensi | SOAP
+export const CUSTOMER_HEADERS = ['No', 'No RM', 'Reimburse', 'Nama', 'Jenis Kelamin', 'Tgl Lahir', 'No WA', 'Pekerjaan', 'Domisili', 'Bulan', 'Referensi', 'SOAP'];
 export const GENDER_LABEL = { L: 'Laki-laki', P: 'Perempuan', '': '' };
 
 const nowIso = () => new Date().toISOString();
 const squash = (v, max) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
-// Catatan medis boleh beberapa baris: pindah baris dipertahankan, spasi berlebih dan karakter kontrol dibuang.
+// SOAP boleh beberapa baris: pindah baris dipertahankan, spasi berlebih dan karakter kontrol dibuang.
 export const MEDICAL_NOTE_MAX = 2000;
 // eslint-disable-next-line no-control-regex
 const cleanNote = (v) => String(v ?? '').replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
@@ -134,7 +134,8 @@ const HEADER_ALIASES = {
   domicile: ['domisili', 'alamat', 'kota'],
   month: ['bulan'],
   reference: ['referensi', 'reference', 'sumber'],
-  medical_note: ['catatanmedis', 'catatan', 'catmedis', 'medicalnote', 'medis'],
+  // Header lama ("Catatan Medis", dst.) tetap diterima agar file impor lama masih bisa dipakai; header baku sekarang "SOAP".
+  medical_note: ['soap', 'catatanmedis', 'catatan', 'catmedis', 'medicalnote', 'medis'],
 };
 
 // Cari baris judul (punya kolom No RM dan Nama) di 10 baris berisi pertama; baris di atasnya (judul laporan dsb.) diabaikan.

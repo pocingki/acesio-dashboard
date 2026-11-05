@@ -12,8 +12,13 @@ const EMP = { tetap: 'Karyawan tetap', part_time: 'Part time' };
 const ORIGIN = { awal: 'Data awal', baru: 'Customer baru' };
 const FIELD_LABEL = {
   rm_no: 'No RM', reimburse: 'Reimburse', name: 'Nama', gender: 'Jenis Kelamin', birth_date: 'Tgl Lahir', phone: 'No WA',
-  occupation: 'Pekerjaan', domicile: 'Domisili', month: 'Bulan', reference: 'Referensi', medical_note: 'Catatan Medis', origin: 'Asal data',
+  occupation: 'Pekerjaan', domicile: 'Domisili', month: 'Bulan', reference: 'Referensi', medical_note: 'SOAP', origin: 'Asal data',
 };
+const SCHEDULE_FIELD_LABEL = {
+  user_id: 'User', customer_id: 'Customer', day: 'Tanggal', start_time: 'Jam mulai', end_time: 'Jam selesai', note: 'Catatan', service_ids: 'Layanan',
+};
+const SOAP_PART_LABEL = { s: 'Subjective', o: 'Objective', a: 'Assessment', p: 'Planning' };
+const SCHEDULE_STATUS = { baru: 'Baru', berjalan: 'Sedang dijalani', selesai: 'Selesai', batal: 'Dibatalkan' };
 const KEY_LABEL = {
   user_id: 'Pengguna', customer_id: 'Customer', service_id: 'Layanan', commission: 'Komisi', day: 'Tanggal', late: 'Terlambat',
   username: 'Username', name: 'Nama', role: 'Peran', employment: 'Status kerja', active: 'Aktif', position: 'Posisi', added: 'Ditambahkan',
@@ -82,6 +87,7 @@ function targetLabel(row, L) {
     case 'customer': return id ? L.customer(id) : '(banyak customer)';
     case 'service': return id ? L.service(id) : '–';
     case 'record': return id ? `Data layanan #${id}` : '–';
+    case 'schedule': return id ? `Jadwal #${id}` : '–';
     case 'day_review': {
       const [uid, day] = String(id).split(':');
       return day ? `${L.user(uid)} · ${dayText(day)}` : L.user(uid);
@@ -203,10 +209,53 @@ function describe(row, d, L) {
         items: [
           { label: 'Customer', value: L.customer(row.target_id) },
           { label: 'Kolom yang diubah', value: cols.length ? cols.join(', ') : '–' },
-          { label: 'Catatan', value: 'Isi data pribadi/medis tidak disimpan di log, hanya nama kolomnya.' },
+          { label: 'Catatan', value: 'Isi data pribadi/SOAP tidak disimpan di log, hanya nama kolomnya.' },
         ],
       };
     }
+    case 'schedule.create':
+      return {
+        summary: `Membuat jadwal ${L.user(d.user_id)} untuk ${L.customer(d.customer_id)} (${dayText(d.day)} ${d.start_time || ''})`.trim(),
+        items: [
+          { label: 'User', value: L.user(d.user_id) }, { label: 'Customer', value: L.customer(d.customer_id) },
+          { label: 'Tanggal', value: dayText(d.day) }, { label: 'Jam mulai', value: d.start_time || '–' },
+          { label: 'Jumlah layanan', value: num(d.services) },
+        ],
+      };
+    case 'schedule.update': {
+      const cols = (Array.isArray(d.fields) ? d.fields : []).map((f) => SCHEDULE_FIELD_LABEL[f] || f);
+      return {
+        summary: `Mengubah jadwal #${row.target_id}: ${cols.length ? cols.join(', ') : 'tidak ada kolom berubah'}`,
+        items: [
+          { label: 'Jadwal', value: `#${row.target_id}` },
+          { label: 'Kolom yang diubah', value: cols.length ? cols.join(', ') : '–' },
+          { label: 'Catatan', value: 'Isi catatan tidak disimpan di log, hanya nama kolomnya.' },
+        ],
+      };
+    }
+    case 'schedule.cancel':
+      return {
+        summary: `Membatalkan jadwal ${L.user(d.user_id)} untuk ${L.customer(d.customer_id)} (${dayText(d.day)})`,
+        items: [
+          { label: 'User', value: L.user(d.user_id) }, { label: 'Customer', value: L.customer(d.customer_id) },
+          { label: 'Tanggal', value: dayText(d.day) }, { label: 'Status sebelumnya', value: SCHEDULE_STATUS[d.from] || d.from || '–' },
+        ],
+      };
+    case 'schedule.start':
+      return {
+        summary: `Memulai jadwal #${row.target_id} untuk ${L.customer(d.customer_id)} (${dayText(d.day)})`,
+        items: [{ label: 'Jadwal', value: `#${row.target_id}` }, { label: 'Customer', value: L.customer(d.customer_id) }, { label: 'Tanggal', value: dayText(d.day) }],
+      };
+    case 'schedule.complete':
+      return {
+        summary: `Menyelesaikan jadwal #${row.target_id} untuk ${L.customer(d.customer_id)} (${dayText(d.day)})`,
+        items: [
+          { label: 'Jadwal', value: `#${row.target_id}` }, { label: 'Customer', value: L.customer(d.customer_id) },
+          { label: 'Tanggal', value: dayText(d.day) }, { label: 'Jumlah layanan', value: num(d.services) },
+          { label: 'Bagian SOAP terisi', value: (Array.isArray(d.soap_parts) ? d.soap_parts : []).map((k) => SOAP_PART_LABEL[k] || k).join(', ') || '–' },
+          { label: 'Catatan', value: 'Isi SOAP tidak disimpan di log, hanya nama bagiannya.' },
+        ],
+      };
     case 'auth.password_change':
       return { summary: `${actor} mengganti password miliknya sendiri`, items: [{ label: 'Keterangan', value: 'Password diganti oleh pemilik akun. Sesi di perangkat lain otomatis keluar.' }] };
     default:

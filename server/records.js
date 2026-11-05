@@ -8,8 +8,9 @@ import { enqueueVisit } from './integration.js';
 const nowIso = () => new Date().toISOString();
 
 // Satu-satunya jalur pembuatan record. Semua pengecekan dan INSERT ada di satu transaksi
-// (ikut transaksi luar bila dipanggil dari withIdempotency). Mengembalikan jumlah baris.
-export function createRecords({ userId, customer, serviceIds, source, note }) {
+// (ikut transaksi luar bila dipanggil dari withIdempotency). Mengembalikan { count, batch }.
+// batch boleh diberikan pemanggil (alur jadwal menyimpannya ke schedules.batch); bila kosong dibuat UUID baru.
+export function createRecords({ userId, customer, serviceIds, source, note, batch: givenBatch }) {
   return tx(() => {
     const u = db.prepare('SELECT id, role, active FROM users WHERE id = ?').get(userId);
     if (!u) throw new HttpError(404, 'User tidak ditemukan');
@@ -28,14 +29,14 @@ export function createRecords({ userId, customer, serviceIds, source, note }) {
     const svc = db.prepare('SELECT id FROM services WHERE id = ?');
     const ins = db.prepare('INSERT INTO records (user_id, customer_id, service_id, commission, source, created_at, day, note, batch) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const when = nowIso();
-    const batch = crypto.randomUUID();
+    const batch = givenBatch || crypto.randomUUID();
     for (const id of serviceIds) {
       if (!svc.get(id)) throw new HttpError(400, 'Ada layanan yang tidak ditemukan');
       ins.run(userId, customer.id, id, price.get(userId, id)?.amount ?? 0, source, when, day, String(note || ''), batch);
     }
-    // Antrean ke Amnan ikut transaksi ini; tidak pernah melempar error dan tidak menunggu jaringan.
+    // Antrean ke WhatsApp ikut transaksi ini; tidak pernah melempar error dan tidak menunggu jaringan.
     enqueueVisit({ customer, serviceIds, day });
-    return serviceIds.length;
+    return { count: serviceIds.length, batch };
   });
 }
 

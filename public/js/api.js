@@ -117,8 +117,14 @@ async function request(path, { method = 'GET', headers, body, signal, timeoutMs 
 }
 
 function fail(path, res, data) {
+  const err = httpError(res, data);
   if (res.status === 401 && !path.startsWith('/api/auth/login') && hooks.onUnauthorized) hooks.onUnauthorized();
-  return httpError(res, data);
+  // Di luar jam akses: diperlakukan seperti sesi berakhir, tetapi membawa pesan dari server.
+  // Saat login (403 dari /api/auth/login) pesan cukup tampil di formulir, tanpa memicu hook.
+  if (res.status === 403 && data?.code === 'OUTSIDE_HOURS' && !path.startsWith('/api/auth/login') && hooks.onUnauthorized) {
+    hooks.onUnauthorized(err.message);
+  }
+  return err;
 }
 
 export async function api(path, { method = 'GET', body, headers, signal } = {}) {

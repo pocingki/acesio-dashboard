@@ -2,12 +2,12 @@
 
 ## Model ancaman
 
-Aplikasi dipakai oleh staf klinik (terapis, admin, supervisor) lewat browser, dan oleh satu WA bot lewat API. Data yang dilindungi: data customer (nama, No WA, tanggal lahir, No RM), riwayat layanan, dan angka komisi.
+Aplikasi dipakai oleh staf klinik (terapis, admin, supervisor) lewat browser, dan oleh satu WA bot lewat API. Data yang dilindungi: data customer (nama, No WA, tanggal lahir, No RM), riwayat layanan, angka komisi, dan **SOAP** (catatan klinis customer, lihat bagian berikutnya).
 
 | Penyerang | Yang dijaga |
 |---|---|
 | Orang di internet tanpa akun | Tebak password, banjir login, request cacat yang menjatuhkan server |
-| Terapis (user) yang nakal atau akunnya dibajak | Tidak boleh melihat komisi, mengubah/hapus data hari lampau, atau memakai fitur admin/supervisor |
+| Terapis (user) yang nakal atau akunnya dibajak | Tidak boleh melihat komisi, mengubah/hapus data hari lampau, membaca SOAP atau jadwal milik user lain, memilih customer/layanan di luar jadwalnya, atau memakai fitur admin/supervisor. Akun user juga hanya aktif pukul 06.00–22.59 |
 | Admin | Tidak melihat komisi, tidak bisa menghapus data input, tidak bisa mengatur akun atau komisi |
 | Halaman web pihak ketiga | Tidak boleh memicu aksi atas nama staf yang sedang login (CSRF) |
 | Orang yang bisa mengirim file | Upload CSV/XLSX tidak boleh menghabiskan memori atau menjalankan formula di Excel |
@@ -20,16 +20,29 @@ Kontrol yang ada:
 - **Otorisasi**: dicek di server pada setiap rute (`public`, `user`, `staff`, `sv`, `bot`). Komisi hanya ikut dikirim untuk supervisor.
 - **Aturan hapus**: user hanya menghapus data miliknya, hari ini (zona `APP_TZ`), belum di-approve. Supervisor boleh menghapus apa saja dan setiap penghapusan tercatat di `audit_log`.
 - **Anti data ganda**: `Idempotency-Key` pada `POST /api/records`.
+- **Input hanya lewat jadwal**: `POST /api/records` oleh user wajib membawa `schedule_id` milik user itu. Customer dan layanan diambil dari jadwal yang dibuat admin/supervisor; `customer_id` dan `service_ids` dari klien diabaikan, jadi user tidak bisa mencatat layanan untuk customer atau layanan yang tidak ditugaskan. Jadwal milik orang lain dijawab 404, bukan 403, agar keberadaannya tidak bocor.
+- **Jam akses user**: akun role `user` hanya bisa login dan dipakai pukul 06:00:00–22:59:59 menurut `APP_TZ` (`ACCESS_HOURS`). Pemeriksaan dilakukan di server pada login dan **setiap permintaan** bersesi; di luar jam, sesi dicabut dan responsnya 403 `OUTSIDE_HOURS`. Admin, supervisor, dan bot tidak dibatasi. Ini pembatas operasional (mengurangi risiko akun terapis dipakai di luar jam kerja), bukan pengganti password yang kuat. `APP_FAKE_NOW_FILE` memalsukan jam server dan hanya dibaca bila `NODE_ENV=test`; jangan pernah dipasang di produksi.
 - **Ekspor**: sel CSV yang diawali karakter formula dinetralkan; sel XLSX ditulis sebagai teks.
 - **Klien**: CSP ketat (`script-src 'self'`, tanpa inline), semua teks pengguna dimasukkan lewat `textContent`, bukan `innerHTML`.
 - **Proxy**: `X-Forwarded-For` dan `X-Forwarded-Proto` hanya dipercaya bila `TRUST_PROXY=true`.
 - **Input**: body JSON harus objek, ukuran dibatasi (413), URL dan cookie rusak ditolak 400/401, XLSX dengan sel di luar jangkauan ditolak.
 
+## SOAP kunjungan (data sensitif)
+
+SOAP (Subjective, Objective, Assessment, Planning) berisi keluhan dan penilaian klinis customer. Perlakuannya:
+
+- **Siapa yang boleh membaca**: hanya user pemilik jadwal (`GET /api/my/schedules/:id`; milik orang lain 404) dan admin/supervisor (`GET /api/staff/schedules/:id`). Daftar jadwal (staf maupun user) **tidak pernah memuat SOAP**; hanya penanda `has_soap`.
+- **Tidak keluar dari aplikasi**: SOAP tidak dikirim ke WhatsApp (tidak ada di payload maupun antrean `integration_outbox`) dan tidak ada di endpoint bot. Hal yang sama berlaku untuk catatan awal customer (kolom *SOAP* di tabel Customer, disimpan di `customers.medical_note`).
+- **Tidak masuk log audit**: `schedule.complete` hanya mencatat nama bagian yang terisi (`s`, `o`, `a`, `p`); isi SOAP dan catatan jadwal tidak pernah ditulis ke `audit_log`.
+- **Tersimpan apa adanya di database** (tidak dienkripsi per kolom). Perlindungannya adalah akses berkas database dan backup: batasi izin `DATA_DIR` dan `BACKUP_DIR` (lihat docs/DEPLOY.md), dan perlakukan backup `acesio.db` sebagai data klinis.
+- **Teks tampil lewat `textContent`**, jadi isi SOAP tidak bisa menyisipkan HTML ke halaman user maupun admin.
+- Menghapus riwayat layanan oleh user **tidak** menghapus SOAP pada jadwalnya (jadwal tetap Selesai).
+
 ## Batasan yang disengaja
 
 Ini keputusan desain, bukan kelalaian. Jangan dilaporkan sebagai celah kecuali Anda menemukan cara memperluasnya.
 
-1. **Pencarian No RM terbuka untuk semua terapis.** Terapis harus bisa mencari customer lewat No RM saat input. Pencarian mengembalikan hanya No RM dan nama (maksimal 8 hasil, 60 permintaan per menit per user), tidak ada nomor WA atau data medis. Konsekuensinya, terapis yang gigih tetap bisa mengumpulkan daftar No RM + nama pelan-pelan. Pembatasan laju memperlambat, tidak mencegah.
+1. **Endpoint pencarian No RM (`GET /api/customers/search`) masih terbuka untuk semua akun yang login.** Sejak input customer berbasis jadwal, antarmuka user tidak memakainya lagi (customer ditentukan admin), tetapi endpoint-nya tetap ada dan bisa dipanggil langsung. Pencarian mengembalikan hanya No RM dan nama (maksimal 8 hasil, 60 permintaan per menit per user), tidak ada nomor WA atau SOAP. Konsekuensinya, terapis yang gigih tetap bisa mengumpulkan daftar No RM + nama pelan-pelan. Pembatasan laju memperlambat, tidak mencegah.
 2. **Satu API key untuk bot** (`BOT_API_KEY`). Siapa pun yang memegang key bisa membaca customer dan mencatat layanan atas nama terapis mana pun. Tidak ada key per bot, per terapis, atau kedaluwarsa otomatis. Mitigasi: simpan key hanya di server bot, rotasi berkala (lihat docs/DEPLOY.md), dan pantau lonjakan data `source = bot`.
 3. **Foto layanan di `/uploads/` dapat dibuka tanpa login.** Isinya hanya gambar kotak layanan, bukan data customer. Jangan mengunggah foto yang berisi data pribadi.
 4. **Tanpa 2FA.** Perlindungan akun bergantung pada password dan pembatasan percobaan.

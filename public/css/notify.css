@@ -1,0 +1,35 @@
+/* Ikon notifikasi (lonceng) di topbar user. Memakai variabel :root dari app.css. */
+.notify { position: relative; }
+.notify__btn { position: relative; width: 40px; height: 40px; }
+.notify__badge { position: absolute; top: 1px; right: 0; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 999px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; box-shadow: 0 0 0 2px var(--blue-900); pointer-events: none; font-variant-numeric: tabular-nums; }
+
+.notify__panel { position: absolute; right: 0; top: calc(100% + 10px); z-index: 30; width: 380px; max-width: calc(100vw - 24px); max-height: min(70vh, 520px); display: flex; flex-direction: column; background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgba(10, 38, 112, .12); overflow: hidden; text-align: left; }
+.topbar .notify__panel :focus-visible { outline-color: var(--blue-600); }
+.notify__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.notify__markall { border: 0; background: none; padding: 6px 0; color: var(--blue-700); font-weight: 600; font-size: 13px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.notify__markall:disabled { color: var(--muted); text-decoration: none; cursor: default; }
+.notify__body { overflow-y: auto; overscroll-behavior: contain; }
+.notify__note { padding: 28px 16px; text-align: center; color: var(--muted); display: grid; gap: 12px; justify-items: center; }
+
+.notify__list { list-style: none; margin: 0; padding: 0; }
+.notify__list li + li { border-top: 1px solid var(--line); }
+.notify__item { position: relative; display: grid; grid-template-columns: 4px 1fr auto; gap: 12px; align-items: start; width: 100%; padding: 12px 16px 12px 12px; border: 0; background: #fff; text-align: left; cursor: pointer; }
+.notify__item:hover { background: var(--blue-50); }
+.notify__item.is-unread { background: var(--blue-50); }
+.notify__item.is-unread:hover { background: var(--blue-100); }
+.notify__item:focus-visible { outline-offset: -3px; }
+.notify__bar { align-self: stretch; border-radius: 2px; background: var(--blue-600); }
+.notify__item[data-tone="diubah"] .notify__bar { background: #b26a00; }
+.notify__item[data-tone="berjalan"] .notify__bar { background: var(--blue-900); }
+.notify__item[data-tone="selesai"] .notify__bar { background: var(--ok-strong); }
+.notify__item[data-tone="batal"] .notify__bar { background: var(--danger); }
+.notify__text { display: grid; gap: 2px; min-width: 0; }
+.notify__title { font-weight: 700; font-size: 14px; }
+.notify__desc { font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }
+.notify__time { font-size: 12px; color: var(--muted); }
+.notify__dot { width: 9px; height: 9px; margin-top: 6px; border-radius: 50%; background: var(--blue-600); }
+
+@media (max-width: 600px) {
+  .notify { position: static; }
+  .notify__panel { position: fixed; left: 8px; right: 8px; width: auto; max-width: none; top: calc(var(--topbar-h, 64px) + 6px); max-height: calc(100vh - var(--topbar-h, 64px) - 20px); }
+}

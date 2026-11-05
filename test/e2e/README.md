@@ -1,8 +1,8 @@
 # Uji manual sisi klien (e2e)
 
-Perilaku klien (DOM, fetch dari browser, zona waktu browser) tidak bisa diuji dengan `node --test` tanpa dependensi. Temuan klien **#6, #9, #10, #11** diuji dengan skenario di bawah. Jalankan sebelum rilis dan setiap kali `public/js/ui.js`, `api.js`, `shell.js`, atau tampilan apa pun di `public/js/` berubah.
+Perilaku klien (DOM, fetch dari browser, zona waktu browser) tidak bisa diuji dengan `node --test` tanpa dependensi. Temuan klien **#6, #9, #10, #11** dan alur baru v1.3.0 (Beranda, Jadwal Saya, SOAP, lonceng, jam akses) diuji dengan skenario di bawah. Jalankan sebelum rilis dan setiap kali `public/js/ui.js`, `api.js`, `shell.js`, atau tampilan apa pun di `public/js/` berubah.
 
-> **Pemetaan.** Nomor mengikuti rencana perbaikan: #6 tab bercampur, #9 unduhan, #10 pesan 413, #11 modal. Skenario zona waktu adalah tambahan (kontrak G).
+> **Pemetaan.** Nomor mengikuti rencana perbaikan: #6 tab bercampur, #9 unduhan, #10 pesan 413, #11 modal. Skenario zona waktu adalah tambahan (kontrak G). Skenario **A sampai E** adalah alur baru v1.3.0.
 
 ## Persiapan
 
@@ -20,15 +20,65 @@ Akun baru   : <username user demo, dipisah koma>
 Password    : <acak>   (acak, hanya tampil sekali ini; catat sekarang)
 ```
 
-Ketiga akun user demo memakai **satu password acak yang sama**; di bawah disebut `<user-demo>` dan `<password-seed>`. Akun supervisor: `admin` / `admin-pass-123` (dari `ADMIN_PASSWORD` di atas). Jika Anda menjalankan seed ulang pada database yang sama, seed menolak (kecuali `--force` dengan ketikan `SAYA YAKIN`); hapus `DATA_DIR` untuk mulai bersih.
+Seed juga mencetak ringkasan jadwal, mis. `Jadwal : 9 untuk hari ini (4 baru, 2 berjalan, 2 selesai, 1 batal), 1 untuk besok.` Ketiga akun user demo (sari, budi, dewi) memakai **satu password acak yang sama**; di bawah disebut `<user-demo>` dan `<password-seed>`. Akun supervisor: `admin` / `admin-pass-123` (dari `ADMIN_PASSWORD` di atas; bila belum ada, seed yang membuatnya).
+
+> **Jam akses.** Login user hanya bisa pukul 06.00–22.59 (zona `APP_TZ`). Bila Anda menguji di luar jam itu, login user ditolak. Itu perilaku yang benar (skenario E); untuk menguji skenario lain, jalankan server dengan `ACCESS_HOURS=off npm start`.
+>
+> **Jadwal demo dibuat untuk tanggal saat seed dijalankan.** Bila server baru dinyalakan keesokan harinya, jadwal "hari ini" itu sudah lewat (tampil *Terlewat*). Hapus `DATA_DIR` dan seed ulang, atau buat jadwal baru lewat tab **Jadwal** sebagai supervisor. Jika Anda menjalankan seed ulang pada database yang sama, seed menolak (kecuali `--force` dengan ketikan `SAYA YAKIN`); hapus `DATA_DIR` untuk mulai bersih.
 
 Buka http://localhost:3000 di Chrome dan satu browser lain. DevTools → Network dan Console harus terbuka; **Console harus tetap bersih** di semua skenario.
 
+## Skenario otomatis alur baru (v1.3.0)
+
+`node test/e2e/user-flow.mjs` menjalankan semuanya sendiri (server sementara, akun dan jadwal lewat API, jam akses dimatikan kecuali pada skenario E). Cara menjalankan: pasang Playwright + Chromium (bukan dependensi repo), lalu `NODE_PATH=<folder node_modules global> node test/e2e/user-flow.mjs`. Skrip ini tidak ikut `npm test`; di luar itu cukup `node --check test/e2e/user-flow.mjs`. Skenario manual di bawah memeriksa hal yang sama dengan mata manusia (tata letak, ponsel).
+
+## A. Alur utama: Beranda, Jadwal Saya, SOAP
+
+1. Supervisor (tab **Jadwal**) membuat tiga jadwal hari ini untuk `<user-demo>`: 09:00 customer X dengan 2 layanan dan catatan, 10:00 customer Y dengan 1 layanan, 11:00 customer X lagi dengan 1 layanan; plus satu jadwal besok.
+2. Login `<user-demo>`. **Diharapkan:** tab awal **Beranda**; urutan tab *Beranda, Jadwal Saya, Input Customer, Riwayat Customer*; angka **2** (customer unik, jadwal besok tidak dihitung) dan lonceng dengan jumlah belum dibaca.
+3. Ketuk angka. **Diharapkan:** Jadwal Saya hari ini dengan 3 baris; tiap baris memuat jam, customer, No RM, dan ringkasan layanan.
+4. Ketuk baris 09:00. **Diharapkan:** halaman **Input customer** terbuka; customer, layanan (2), dan catatan admin sudah tampil dan **tidak bisa diubah**; **tidak ada** kolom pencarian No RM maupun kotak layanan; **Simpan nonaktif**. Di tab Jadwal supervisor, jadwal itu kini **Sedang dijalani**.
+5. Isi satu bagian dengan 2 karakter lalu pindah kolom: pesan bahwa minimal 3 karakter. Isi keempat bagian (S, O, A, P) lalu **Simpan**. **Diharapkan:** toast "SOAP tersimpan", kembali ke Jadwal Saya, baris itu **Selesai**; Riwayat Customer menampilkan customer X dengan 2 layanan; Beranda menghitung 1 Selesai.
+6. Supervisor membuka detail jadwal itu: SOAP terlihat. Daftar jadwal tidak menampilkan SOAP.
+7. Pindah tab di tengah pengisian lalu kembali lewat Jadwal Saya: draf pulih. **Keluar** lalu masuk lagi: draf kosong.
+8. Buka tab **Input Customer** langsung. **Diharapkan:** "Pilih jadwal dulu" dengan tombol ke Jadwal Saya.
+
+## B. Filter tanggal dan jadwal bukan hari ini
+
+1. Di Jadwal Saya, bawaan hanya hari ini. Ketuk **Semua**: jadwal besok ikut tampil, dikelompokkan per tanggal, dan tanggal hari ini bertanda *Hari ini*. Coba **Besok**, **7 hari ke depan**, dan panah hari sebelumnya/berikutnya.
+2. Ketuk jadwal besok. **Diharapkan:** hanya pesan bahwa jadwal tidak untuk hari ini; halaman input tidak terbuka dan status tetap Baru.
+3. Jadwal hari lampau yang belum selesai (buat dengan menunggu pergantian hari, atau ubah tanggal langsung di database uji) tampil **Terlewat** dan hanya bisa dilihat.
+4. Jadwal Selesai: ketuk untuk melihat rincian (layanan dan SOAP) tanpa bisa mengubah.
+
+## C. Lonceng notifikasi
+
+1. Saat login ada lencana jumlah belum dibaca. Buka lonceng: daftar *Tugas baru* dengan customer, tanggal, dan jam.
+2. **Tandai semua dibaca**: lencana hilang. Tutup dengan `Esc` atau klik di luar; fokus kembali ke lonceng.
+3. Supervisor mengubah jadwal Baru milik user: user menerima *Jadwal diubah* (daftar dimuat ulang tiap panel dibuka; lencana menyusul lewat pemeriksaan berkala sekitar 45 detik). Supervisor membatalkan jadwal: *Tugas dibatalkan*. Mengganti user pada jadwal: user lama menerima pembatalan, user baru tugas baru.
+4. User memulai dan menyelesaikan jadwal: muncul *Tugas sedang dijalani* dan *Tugas selesai*.
+5. Ketuk satu notifikasi: Jadwal Saya terbuka pada tanggal jadwal itu dan notifikasi bertanda dibaca.
+6. Navigasi keyboard: Tab ke lonceng, Enter membuka, Tab berpindah di dalam panel, `Esc` menutup. Pembaca layar menyebut jumlah belum dibaca.
+
+## D. Admin membuat jadwal dengan layanan
+
+1. Tab **Jadwal** (supervisor dan admin). **Tambah jadwal** tanpa memilih layanan: ditolak dengan pesan. Pilih 29 layanan: diterima; 30 tidak mungkin (hanya ada 29 kotak).
+2. Tanggal kemarin ditolak. Jam selesai sebelum jam mulai ditolak.
+3. **Ubah** jadwal Baru (ganti layanan, jam, user). Pada jadwal Sedang dijalani atau Selesai tombol ubah tidak tersedia; bila dipaksa lewat API: 409 `SCHEDULE_STATE`.
+4. **Batalkan**: admin hanya pada jadwal Baru; supervisor juga pada jadwal Sedang dijalani.
+5. Admin tidak pernah melihat angka komisi di layar mana pun.
+
+## E. Jam akses user
+
+1. Otomatis: skrip memajukan jam server palsu (`APP_FAKE_NOW_FILE`, hanya berlaku dengan `NODE_ENV=test`) ke 23.30: login user ditolak dengan pesan *pukul 06.00–23.00*; admin tetap bisa login. Jam dimundurkan ke 10.00: user masuk. Jam dimajukan ke 23.05: aksi berikutnya mengembalikan user ke layar login dengan pesan jam akses.
+2. Manual: jalankan server dengan `ACCESS_HOURS` yang jendelanya tidak mencakup jam sekarang (mis. `ACCESS_HOURS=03:00-03:30` bila sekarang siang). Login user ditolak dengan pesan jelas di layar login; login supervisor tetap berhasil.
+3. Jalankan dengan `ACCESS_HOURS=off`: user bisa masuk kapan saja.
+4. `APP_FAKE_NOW_FILE` tanpa `NODE_ENV=test` **tidak** berpengaruh (jam asli dipakai). Pastikan variabel itu tidak ada di berkas lingkungan produksi.
+
 ## #6: tab bercampur dan hasil permintaan basi menimpa tampilan
 
-Kode lama: bila user pindah ke "Riwayat Customer" saat `/api/services` masih memuat, grid layanan dan panel input muncul di bawah halaman riwayat (dua judul dalam satu halaman). Tampilan async menulis ke `main` setelah `await` tanpa memeriksa apakah tab masih aktif. Seharusnya `shell.select` memberi `ctx = {signal, isCurrent()}` dan hasil basi dibuang bila `isCurrent()` false; `api(path, {signal})` membatalkan fetch.
+Kode lama: bila user pindah ke "Riwayat Customer" saat data tab sebelumnya masih memuat, tampilan tab sebelumnya muncul di bawah halaman riwayat (dua judul dalam satu halaman). Tampilan async menulis ke `main` setelah `await` tanpa memeriksa apakah tab masih aktif. Seharusnya `shell.select` memberi `ctx = {signal, isCurrent()}` dan hasil basi dibuang bila `isCurrent()` false; `api(path, {signal})` membatalkan fetch.
 
-0. Otomatis: `node test/e2e/user-flow.mjs` (Playwright, bukan bagian `npm test`) menunda `/api/services` 1,5 detik, berpindah ke Riwayat Customer, dan memastikan tidak ada `.svc-grid` di sana.
+0. Otomatis: `node test/e2e/user-flow.mjs` (Playwright, bukan bagian `npm test`) menunda `/api/my/schedules` 1,5 detik, membuka Jadwal Saya lalu langsung pindah ke Riwayat Customer, dan memastikan daftar jadwal tidak muncul di sana.
 1. Login sebagai supervisor. DevTools → Network → throttling **Slow 3G**.
 2. Klik **Laporan**, dan **sebelum selesai memuat** klik **Customer**, lalu cepat klik **Akun User**.
 3. Tunggu semua permintaan selesai. **Diharapkan:** layar akhir adalah **Akun User** saja; tidak ada kartu atau tabel Laporan/Customer yang muncul belakangan; Network menampilkan permintaan sebelumnya *canceled*.
@@ -72,15 +122,15 @@ Kode lama: `ui.js` memakai `TZ = 'Asia/Jakarta'` dan `+07:00` permanen; server m
 
 1. Hentikan server, jalankan dengan zona yang **tanggalnya berbeda dari Jakarta saat Anda menguji**: `APP_TZ=Pacific/Auckland` (sekitar 6 jam di depan WIB) bila Anda menguji antara 18:00–24:00 WIB, atau `APP_TZ=America/Los_Angeles` (sekitar 14–15 jam di belakang WIB) bila antara 00:00–14:00 WIB. Di luar jendela itu tanggalnya sama dan skenario tidak membuktikan apa-apa.
 2. Login sebagai `<user-demo>`. Di Console: `await (await fetch('/api/auth/me')).json()` harus memuat `tz` sesuai zona yang Anda pilih.
-3. Input satu layanan. Buka Riwayat Customer: tanggal item **sama** dengan "hari ini" menurut server dan tombol hapus tersedia untuk item itu. Kolom hari di Laporan/Detail user menampilkan tanggal yang benar, bukan bergeser sehari.
-4. **Gagal bila:** filter periode bawaan ("hari ini") kosong padahal data baru saja diinput, atau tanggal bergeser satu hari.
+3. Sebagai supervisor buat jadwal **hari ini** (menurut server) untuk `<user-demo>`; sebagai user jalankan dan selesaikan jadwal itu (isi SOAP). Buka Riwayat Customer: tanggal item **sama** dengan "hari ini" menurut server dan tombol hapus tersedia untuk item itu. Beranda dan Jadwal Saya juga menampilkan jadwal itu sebagai hari ini. Kolom hari di Laporan/Detail user menampilkan tanggal yang benar, bukan bergeser sehari.
+4. **Gagal bila:** filter periode bawaan ("hari ini") kosong padahal data baru saja diinput, jadwal hari ini tampil sebagai *Terlewat* atau *bukan untuk hari ini*, atau tanggal bergeser satu hari. Jam akses juga mengikuti zona ini: pada `APP_TZ` yang jamnya di luar 06.00–23.00 saat Anda menguji, login user akan ditolak (gunakan `ACCESS_HOURS=off`).
 5. Kontrol: ulangi dengan `APP_TZ` default (Jakarta); hasilnya harus tetap benar.
 
 ## Tambahan: daftar customer ringkas (Riwayat user dan Approve)
 
 Riwayat Customer (user) dan Detail user (admin/supervisor, bagian approve) menampilkan **satu baris per customer**. Baris memuat tanggal (hanya di riwayat user), No RM, nama, No WA, dan jumlah layanan. Klik baris untuk membuka rincian yang **hanya berisi layanan** (nama layanan, jam, komisi untuk supervisor, tombol hapus bila boleh).
 
-1. Login `<user-demo>`, input 3 layanan untuk satu customer, lalu buka **Riwayat Customer**.
+1. Supervisor membuat satu jadwal hari ini dengan 3 layanan untuk `<user-demo>`. Login `<user-demo>`, jalankan dan selesaikan jadwal itu (isi SOAP), lalu buka **Riwayat Customer**.
 2. **Diharapkan:** satu baris untuk customer itu dengan "3 layanan"; tidak ada baris ganda; rincian tertutup.
 3. Klik baris: muncul 3 layanan tanpa mengulang No RM, nama, atau No WA. Klik lagi: tertutup. Tab dan Enter/Spasi juga membuka baris.
 4. Hapus satu layanan dari rincian: daftar dimuat ulang, baris tetap terbuka dan menjadi "2 layanan". Layanan hari lampau atau yang sudah di-approve menampilkan "Terkunci".
@@ -90,4 +140,4 @@ Riwayat Customer (user) dan Detail user (admin/supervisor, bagian approve) menam
 ## Catatan
 
 - Saat satu skenario gagal, catat: langkah, browser, hasil nyata, tangkapan Network/Console, dan commit.
-- Skenario ini sengaja manual. Jika kelak ada Playwright, tiap bagian di sini dapat dipindah menjadi satu berkas spesifikasi bernama `e6`, `e9`, `e10`, `e11`.
+- Skenario #6, #9, #10, #11, zona waktu, dan A, B (sebagian), C (sebagian), E sudah otomatis di `user-flow.mjs`; sisanya (tata letak ponsel, pembaca layar, sisi supervisor) tetap manual. Skrip diuji hanya dengan Chromium.

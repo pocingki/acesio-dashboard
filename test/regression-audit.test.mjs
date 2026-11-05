@@ -14,6 +14,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { VALID_SOAP, todayYmd } from './helpers.mjs';
 
 // ======================= HARNESS =======================
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -53,7 +54,7 @@ async function startServer(extraEnv = {}) {
   const env = {
     ...process.env, PORT: '0', HOST: '127.0.0.1', DATA_DIR: dataDir,
     ADMIN_USERNAME: ADMIN.username, ADMIN_PASSWORD: ADMIN.password, BOT_API_KEY: 'test-bot-key-0123456789',
-    COOKIE_SECURE: 'false', TRUST_PROXY: 'false', APP_TZ: 'Asia/Jakarta', ...extraEnv,
+    COOKIE_SECURE: 'false', TRUST_PROXY: 'false', APP_TZ: 'Asia/Jakarta', ACCESS_HOURS: 'off', ...extraEnv, // jam akses dimatikan: tes tidak boleh bergantung pada jam dinding
   };
   delete env.NODE_TEST_CONTEXT; // supaya proses anak tidak ikut "mode runner tes"
   const child = spawn(process.execPath, ['--no-warnings', 'server/index.js'], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -101,8 +102,22 @@ async function startServer(extraEnv = {}) {
       assert.equal(r.status, 200, `buat customer gagal: ${r.text}`);
       return r.json.id;
     },
+    // Fase 4: input user wajib lewat jadwal. createVisit membuat jadwal hari ini (oleh supervisor) untuk user
+    // pemilik cookie; postRecord menyelesaikannya dengan SOAP; addRecord = keduanya (satu jadwal baru tiap panggilan).
+    async createVisit(cookie, rm, serviceIds) {
+      const me = await s.call('GET', '/api/auth/me', { cookie });
+      const r = await s.call('POST', '/api/staff/schedules', {
+        cookie: await s.admin(),
+        body: { user_id: me.json.user.id, customer_rm: rm, service_ids: serviceIds, day: todayYmd(), start_time: '09:00' },
+      });
+      assert.equal(r.status, 200, `buat jadwal gagal: ${r.text}`);
+      return r.json.schedule.id;
+    },
+    async postRecord(cookie, scheduleId, headers = {}) {
+      return s.call('POST', '/api/records', { cookie, headers, body: { schedule_id: scheduleId, soap: VALID_SOAP } });
+    },
     async addRecord(cookie, rm, serviceIds, headers = {}) {
-      return s.call('POST', '/api/records', { cookie, headers, body: { customer_rm: rm, service_ids: serviceIds } });
+      return s.postRecord(cookie, await s.createVisit(cookie, rm, serviceIds), headers);
     },
   };
   return s;
@@ -280,8 +295,9 @@ test('#4 dua POST dengan Idempotency-Key sama membuat tepat 1 record', async (t)
     await t.test('kunci sama berurutan -> respons semula + Idempotent-Replay, 1 record', async () => {
       const before = await count();
       const h = { 'Idempotency-Key': 'kunci-uji-0001' };
-      const r1 = await s.addRecord(cookie, 'RM-004', [1], h);
-      const r2 = await s.addRecord(cookie, 'RM-004', [1], h);
+      const sid = await s.createVisit(cookie, 'RM-004', [1]);
+      const r1 = await s.postRecord(cookie, sid, h);
+      const r2 = await s.postRecord(cookie, sid, h);
       assert.equal(r1.status, 200, r1.text);
       assert.equal(r2.status, r1.status);
       assert.equal(r1.headers['idempotent-replay'], undefined, 'permintaan pertama bukan replay');
@@ -293,7 +309,8 @@ test('#4 dua POST dengan Idempotency-Key sama membuat tepat 1 record', async (t)
     await t.test('kunci sama dikirim bersamaan -> tetap hanya 1 record baru', async () => {
       const before = await count();
       const h = { 'Idempotency-Key': 'kunci-uji-0002' };
-      const [x, y] = await Promise.all([s.addRecord(cookie, 'RM-004', [2], h), s.addRecord(cookie, 'RM-004', [2], h)]);
+      const sid = await s.createVisit(cookie, 'RM-004', [2]);
+      const [x, y] = await Promise.all([s.postRecord(cookie, sid, h), s.postRecord(cookie, sid, h)]);
       assert.equal(x.status, 200, x.text);
       assert.equal(y.status, 200, y.text);
       assert.equal(await count(), before + 1, 'hanya boleh bertambah 1 record, bukan 2');
