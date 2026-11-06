@@ -246,6 +246,25 @@ function describe(row, d, L) {
         summary: `Memulai jadwal #${row.target_id} untuk ${L.customer(d.customer_id)} (${dayText(d.day)})`,
         items: [{ label: 'Jadwal', value: `#${row.target_id}` }, { label: 'Customer', value: L.customer(d.customer_id) }, { label: 'Tanggal', value: dayText(d.day) }],
       };
+    case 'schedule.approve':
+      return {
+        summary: `Meng-approve pekerjaan ${L.user(d.user_id)} (jadwal selesai) pada jadwal #${row.target_id} untuk ${L.customer(d.customer_id)} (${dayText(d.day)})`,
+        items: [
+          { label: 'Jadwal', value: `#${row.target_id}` }, { label: 'Terapis', value: L.user(d.user_id) },
+          { label: 'Customer', value: L.customer(d.customer_id) }, { label: 'Tanggal', value: dayText(d.day) },
+          { label: 'Jumlah layanan', value: num(d.services) },
+        ],
+      };
+    case 'schedule.soap':
+      return {
+        summary: `Menyimpan SOAP jadwal #${row.target_id} untuk ${L.customer(d.customer_id)} (${dayText(d.day)}); hitung mundur ${num(d.minutes)} menit dimulai`,
+        items: [
+          { label: 'Jadwal', value: `#${row.target_id}` }, { label: 'Customer', value: L.customer(d.customer_id) },
+          { label: 'Tanggal', value: dayText(d.day) }, { label: 'Durasi hitung mundur', value: `${num(d.minutes)} menit` },
+          { label: 'Bagian SOAP terisi', value: (Array.isArray(d.soap_parts) ? d.soap_parts : []).map((k) => SOAP_PART_LABEL[k] || k).join(', ') || '–' },
+          { label: 'Catatan', value: 'Isi SOAP tidak disimpan di log, hanya nama bagiannya.' },
+        ],
+      };
     case 'schedule.complete':
       return {
         summary: `Menyelesaikan jadwal #${row.target_id} untuk ${L.customer(d.customer_id)} (${dayText(d.day)})`,

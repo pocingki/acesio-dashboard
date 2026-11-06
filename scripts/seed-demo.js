@@ -22,7 +22,7 @@ const force = process.argv.includes('--force');
 const { db, tx } = await import('../server/db.js');
 const { hashPassword } = await import('../server/auth.js');
 const { ymd } = await import('../server/clock.js');
-const { createSchedule, startSchedule, completeSchedule, cancelSchedule } = await import('../server/schedules.js');
+const { createSchedule, startSchedule, completeSchedule, cancelSchedule, approveSchedule } = await import('../server/schedules.js');
 
 const count = (sql) => db.prepare(sql).get().n;
 const problems = [];
@@ -120,7 +120,7 @@ const SOAP_CONTOH = {
   a: 'Dugaan strain ligamen medial derajat ringan.',
   p: 'Terapi manual dan latihan penguatan paha dua kali seminggu, evaluasi ulang dalam dua minggu.',
 };
-const scheduleSummary = { hariIni: 0, besok: 0, batal: 0, selesai: 0, berjalan: 0, baru: 0 };
+const scheduleSummary = { hariIni: 0, besok: 0, batal: 0, selesai: 0, berjalan: 0, menunggu: 0, baru: 0 };
 tx(() => {
   const staffActor = db.prepare("SELECT id, name, role FROM users WHERE role = 'supervisor' ORDER BY id LIMIT 1").get();
   const serviceIds = db.prepare('SELECT id FROM services ORDER BY position').all().map((r) => r.id);
@@ -132,12 +132,12 @@ tx(() => {
   // [pekerja, jam mulai, jam selesai, indeks customer, layanan (posisi 1..), status akhir]
   const plan = [
     [0, '08:00', '09:00', 0, [1, 2], 'selesai'],
-    [0, '10:30', '11:30', 1, [3], 'berjalan'],
+    [0, '10:30', '11:30', 1, [3], 'berjalan'], // sudah Mulai, menunggu SOAP
     [0, '14:00', '15:30', 2, [4, 5, 6], 'baru'],
     [1, '08:30', '09:30', 3, [2], 'selesai'],
     [1, '11:00', '12:00', 4, [1, 7], 'baru'],
     [1, '15:00', '16:00', 5, [6, 8], 'baru'],
-    [2, '09:30', '10:30', 6, [5], 'berjalan'],
+    [2, '09:30', '10:30', 6, [5], 'menunggu'], // SOAP terisi, hitung mundur habis, menunggu approve admin/supervisor
     [2, '13:00', '14:00', 7, [3, 4], 'baru'],
     [2, '16:00', '17:00', 8, [1], 'batal'],
   ];
@@ -149,8 +149,12 @@ tx(() => {
   for (const [w, start, end, cust, pos, status] of plan) {
     const sch = make(w, today, start, end, cust, pos, status === 'baru' && cust === 2 ? 'Customer lama, mulai dari evaluasi keluhan terakhir.' : '');
     scheduleSummary.hariIni += 1;
-    if (status === 'berjalan' || status === 'selesai') startSchedule({ user: workers[w], id: sch.id });
-    if (status === 'selesai') completeSchedule({ user: workers[w], scheduleId: sch.id, soap: SOAP_CONTOH });
+    if (['berjalan', 'menunggu', 'selesai'].includes(status)) startSchedule({ user: workers[w], id: sch.id });
+    // Alur: Mulai -> SOAP (hitung mundur mulai) -> waktu habis -> approve = Selesai.
+    if (status === 'menunggu' || status === 'selesai') completeSchedule({ user: workers[w], scheduleId: sch.id, soap: SOAP_CONTOH });
+    // Demo: majukan batas waktu ke masa lalu seolah hitung mundur sudah habis (jadwal asli menunggu waktunya berjalan).
+    if (status === 'menunggu' || status === 'selesai') db.prepare('UPDATE schedules SET due_at = ? WHERE id = ?').run(new Date(Date.now() - 60000).toISOString(), sch.id);
+    if (status === 'selesai') approveSchedule(sch.id, staffActor, '');
     if (status === 'batal') cancelSchedule(sch.id, staffActor, '');
     scheduleSummary[status] += 1;
   }
@@ -169,5 +173,5 @@ if (needSupervisor) {
   console.log(`  Supervisor  : ${supervisorName} (dibuat seed karena belum ada)`);
   console.log(process.env.ADMIN_PASSWORD ? '  Password    : sesuai ADMIN_PASSWORD\n' : `  Password    : sama dengan password akun demo di atas\n`);
 }
-console.log(`  Jadwal      : ${scheduleSummary.hariIni} untuk hari ini (${scheduleSummary.baru} baru, ${scheduleSummary.berjalan} berjalan, ${scheduleSummary.selesai} selesai, ${scheduleSummary.batal} batal), ${scheduleSummary.besok} untuk besok.`);
-console.log('  Jadwal yang berjalan/selesai membuat notifikasi dan record layanan; jadwal baru siap dijalankan dari akun user demo.\n');
+console.log(`  Jadwal      : ${scheduleSummary.hariIni} untuk hari ini (${scheduleSummary.baru} baru, ${scheduleSummary.berjalan} berjalan (menunggu SOAP), ${scheduleSummary.menunggu} menunggu approve, ${scheduleSummary.selesai} selesai, ${scheduleSummary.batal} batal), ${scheduleSummary.besok} untuk besok.`);
+console.log('  Jadwal selesai membuat record layanan; jadwal baru siap dijalankan dari akun user demo (Mulai -> isi SOAP -> hitung mundur -> approve).\n');

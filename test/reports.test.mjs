@@ -64,7 +64,7 @@ before(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acesio-reports-'));
   proc = spawn(process.execPath, ['--no-warnings', 'server/index.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: '0', HOST: '127.0.0.1', DATA_DIR: dataDir, APP_TZ: TZ, ACCESS_HOURS: 'off', ADMIN_USERNAME: 'boss', ADMIN_PASSWORD: 'rahasia-boss-1', BOT_API_KEY: '' },
+    env: { ...process.env, PORT: '0', HOST: '127.0.0.1', DATA_DIR: dataDir, APP_TZ: TZ, ACCESS_HOURS: 'off', SESSION_TIMER: 'off', ADMIN_USERNAME: 'boss', ADMIN_PASSWORD: 'rahasia-boss-1', BOT_API_KEY: '' },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
   base = await new Promise((resolve, reject) => {

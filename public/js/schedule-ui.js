@@ -6,13 +6,59 @@ export const SCHEDULE_STATUS_LABEL = {
   baru: 'Baru', berjalan: 'Sedang dijalani', selesai: 'Selesai', batal: 'Dibatalkan',
 };
 
+// Fase jadwal berjalan (dari server): soap = menunggu SOAP (hitung mundur belum jalan), timer = hitung mundur,
+// menunggu = waktu habis & belum di-approve. Setelah approve jadwal Selesai.
+export const PHASE_LABEL = { soap: 'Isi SOAP', timer: 'Sedang dijalani', menunggu: 'Menunggu approve' };
+// Opsi filter status untuk staf: empat status + pseudo-status "menunggu".
+export const STAFF_STATUS_FILTER = { ...SCHEDULE_STATUS_LABEL, menunggu: 'Menunggu approve' };
+
 // Lencana status. overdue (jadwal lampau yang belum selesai) tampil "Terlewat".
-export function schedulePill(status, overdue = false) {
+// phase (opsional) memperjelas jadwal berjalan: Isi SOAP / Sedang dijalani / Menunggu approve.
+export function schedulePill(status, overdue = false, phase = null) {
   if (overdue && (status === 'baru' || status === 'berjalan')) {
     return h('span', { class: 'pill sch-pill sch-pill--terlewat' }, 'Terlewat');
   }
+  if (status === 'berjalan' && PHASE_LABEL[phase]) {
+    return h('span', { class: `pill sch-pill sch-pill--${phase === 'menunggu' ? 'menunggu' : 'berjalan'}` }, PHASE_LABEL[phase]);
+  }
   const key = SCHEDULE_STATUS_LABEL[status] ? status : 'baru';
   return h('span', { class: `pill sch-pill sch-pill--${key}` }, SCHEDULE_STATUS_LABEL[key]);
+}
+
+// ---------- hitung mundur ----------
+// 3725 -> "1:02:05", 125 -> "02:05", 0 -> "00:00". Nilai tak sah dianggap 0.
+export function fmtCountdown(sec) {
+  const n = Math.max(0, Math.floor(Number(sec) || 0));
+  const hh = Math.floor(n / 3600);
+  const mm = String(Math.floor((n % 3600) / 60)).padStart(2, '0');
+  const ss = String(n % 60).padStart(2, '0');
+  return hh ? `${hh}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+// Elemen hitung mundur untuk jadwal berjalan dengan phase 'timer' (SOAP sudah disimpan). Sisa waktu berasal dari server (remaining_sec);
+// penghitung memakai jam monotonik browser sehingga jam perangkat yang salah tidak berpengaruh.
+// onDone dipanggil sekali saat habis. Berhenti sendiri bila elemen dilepas dari halaman atau signal dibatalkan.
+export function countdownEl(remainingSec, { onDone, signal, label = 'Sisa waktu' } = {}) {
+  const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const total = Math.max(0, Math.ceil(Number(remainingSec) || 0));
+  const time = h('b', { class: 'cd__time', role: 'timer', 'aria-live': 'off' }, fmtCountdown(total));
+  const el = h('span', { class: 'cd' }, h('span', { class: 'cd__label' }, label), time);
+  let done = false;
+  let timer = null;
+  const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+  const tick = () => {
+    const left = Math.max(0, total - Math.floor((clock() - t0) / 1000));
+    time.textContent = fmtCountdown(left);
+    if (left <= 0 && !done) { done = true; stop(); el.classList.add('is-done'); if (typeof onDone === 'function') onDone(); }
+  };
+  if (total <= 0) { queueMicrotask(tick); return el; }
+  timer = setInterval(() => {
+    if (!el.isConnected || signal?.aborted) { stop(); return; }
+    tick();
+  }, 1000);
+  signal?.addEventListener?.('abort', stop, { once: true });
+  return el;
 }
 
 // "09:00–10:00" atau "09:00" bila jam selesai kosong.

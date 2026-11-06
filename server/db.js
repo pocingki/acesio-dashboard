@@ -282,6 +282,14 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, id);
 `);
 
+// Timer layanan dan approve. flow = 1 bila jadwal dimulai dengan alur baru (Mulai -> SOAP -> hitung mundur -> approve);
+// 0 = jadwal lama atau timer dimatikan. due_at = batas waktu hitung mundur (diisi saat SOAP disimpan).
+// approved_at/approved_by = admin/supervisor yang menyatakan pekerjaan terapis selesai (saat itu jadwal Selesai).
+// Hanya menambah kolom bila belum ada (aman dijalankan berulang); status jadwal tidak berubah.
+for (const [col, ddl] of [['flow', 'INTEGER NOT NULL DEFAULT 0'], ['due_at', "TEXT NOT NULL DEFAULT ''"], ['approved_at', "TEXT NOT NULL DEFAULT ''"], ['approved_by', 'INTEGER REFERENCES users(id)']]) {
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('schedules') WHERE name = ?").get(col)) db.exec(`ALTER TABLE schedules ADD COLUMN ${col} ${ddl}`);
+}
+
 // 29 kotak layanan tetap; supervisor mengubah nama dan fotonya.
 export const SERVICE_COUNT = 29;
 if (db.prepare('SELECT COUNT(*) AS n FROM services').get().n < SERVICE_COUNT) {

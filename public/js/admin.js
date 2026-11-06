@@ -261,7 +261,7 @@ function accountsView(main, me) {
         h('tbody', null, accounts.map((a) => h('tr', null,
           h('td', null, h('b', null, a.name)),
           h('td', null, a.username),
-          h('td', null, a.role === 'admin' ? 'Admin' : 'User'),
+          h('td', null, a.role === 'admin' ? 'Admin' : 'Terapis'),
           h('td', null, h('span', { class: `pill${a.active ? '' : ' pill--off'}` }, a.active ? 'Aktif' : 'Nonaktif')),
           h('td', null, h('div', { class: 'row-actions' },
             h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => openAccountEditor(a, load, me) }, 'Ubah')))))))));

@@ -12,6 +12,7 @@ const TYPES = {
   tugas_diubah: { title: 'Jadwal diubah', tone: 'diubah' },
   tugas_berjalan: { title: 'Tugas sedang dijalani', tone: 'berjalan' },
   tugas_selesai: { title: 'Tugas selesai', tone: 'selesai' },
+  tugas_disetujui: { title: 'Pekerjaan disetujui, isi SOAP', tone: 'selesai' },
   tugas_dibatalkan: { title: 'Tugas dibatalkan', tone: 'batal' },
 };
 

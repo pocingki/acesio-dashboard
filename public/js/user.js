@@ -34,12 +34,13 @@ export function renderUserApp(root, user, { onLogout }) {
     user,
     onLogout,
     actions: [bell],
+    // Isi SOAP ('input') tidak punya menu sendiri: dibuka dari tugas yang sudah dimulai (tombol Mulai di Beranda atau Jadwal Saya).
     tabs: [
       { id: 'home', label: 'Beranda' },
       { id: 'schedule', label: 'Jadwal Saya' },
-      { id: 'input', label: 'Input Customer' },
       { id: 'history', label: 'Riwayat Customer' },
     ],
+    alias: { input: 'schedule' },
     onSelect: (id, main, ctx) => {
       const params = ctx.params || {};
       if (id === 'home') return homeView(main, user, ctx, nav);

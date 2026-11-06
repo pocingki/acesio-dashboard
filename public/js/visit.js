@@ -1,10 +1,11 @@
-// Tab "Input Customer" untuk user: bekerja HANYA dari jadwal (D3, D12).
+// Halaman isi SOAP (dulu tab "Input Customer") untuk user: bekerja HANYA dari jadwal (D3, D12).
 // Customer dan layanan sudah ditentukan admin; user hanya mengisi SOAP kunjungan (S/O/A/P, semua wajib)
-// lalu menyimpan. Satu simpanan membuat record untuk semua layanan pada jadwal dan menyelesaikan jadwal.
+// lalu menyimpan. Alur baru: SOAP wajib diisi dulu, baru hitung mundur berjalan; layanan tercatat dan jadwal Selesai
+// saat admin/supervisor approve setelah waktu habis. Jadwal lama (tanpa alur ini) tetap selesai langsung saat Simpan.
 // Modul ini tidak menyentuh document/window saat dimuat (aman diimpor tes Node).
 import { api } from './api.js';
 import { h, toast, emptyState, todayInTz } from './ui.js';
-import { SOAP_PARTS, fmtTimeRange, fmtLongDay, schedulePill } from './schedule-ui.js';
+import { SOAP_PARTS, fmtTimeRange, fmtLongDay, schedulePill, countdownEl } from './schedule-ui.js';
 
 export const SOAP_MIN = 3;
 export const SOAP_MAX = 2000;
@@ -70,6 +71,9 @@ export function visitBlockReason(schedule, today) {
       ? 'Jadwal ini sudah terlewat. Jadwal hari lampau hanya bisa dilihat, tidak bisa dijalankan.'
       : 'Jadwal ini bukan untuk hari ini. Jadwal hanya bisa dijalankan pada harinya.';
   }
+  if (schedule.status === 'baru') return 'Tekan Mulai dulu di Jadwal Saya. Setelah itu isi SOAP; hitung mundur berjalan setelah SOAP disimpan.';
+  if (schedule.status === 'berjalan' && schedule.phase === 'timer') return 'SOAP sudah disimpan dan hitung mundur sedang berjalan. Setelah waktu habis, tugas menunggu approve admin atau supervisor.';
+  if (schedule.status === 'berjalan' && schedule.phase === 'menunggu') return 'SOAP sudah disimpan dan waktu habis. Menunggu approve admin atau supervisor; setelah disetujui tugas Selesai.';
   return null;
 }
 
@@ -102,7 +106,7 @@ export async function visitView(main, user, ctx, { goTo, params } = {}) {
   const sid = soapDraftKey(params?.scheduleId);
   if (!sid) {
     main.append(h('div', { class: 'visit' },
-      emptyState('Pilih jadwal dulu', 'Input customer dimulai dari jadwal yang dibuat admin. Buka Jadwal Saya lalu ketuk salah satu jadwal.'),
+      emptyState('Pilih jadwal dulu', 'SOAP diisi setelah kamu memulai tugas. Buka Jadwal Saya atau Beranda, tekan Mulai pada tugas hari ini.'),
       h('div', { class: 'visit__actions' }, backBtn())));
     return;
   }
@@ -126,13 +130,16 @@ export async function visitView(main, user, ctx, { goTo, params } = {}) {
   if (blocked) {
     main.replaceChildren(h('div', { class: 'visit' },
       customerCard(schedule),
-      emptyState('Jadwal tidak bisa diisi', blocked),
+      schedule.status === 'berjalan' && schedule.phase === 'timer'
+        ? h('div', { class: 'visit__countdown' }, countdownEl(schedule.remaining_sec, { signal, onDone: () => { if (ctx.isCurrent()) goTo('schedule'); } }))
+        : null,
+      emptyState(schedule.status === 'berjalan' && schedule.phase ? 'SOAP sudah disimpan' : 'Jadwal tidak bisa diisi', blocked),
       h('div', { class: 'visit__actions' }, backBtn('Kembali ke Jadwal Saya'))));
     return;
   }
 
   const head = h('div', { class: 'page-head' },
-    h('div', null, h('h1', null, 'Input customer'), h('p', { class: 'muted' }, 'Isi SOAP kunjungan ini lalu simpan.')),
+    h('div', null, h('h1', null, 'Isi SOAP kunjungan'), h('p', { class: 'muted' }, 'Isi SOAP dulu. Setelah disimpan, hitung mundur berjalan; saat waktu habis tugas menunggu approve admin atau supervisor.')),
     h('div', { class: 'toolbar' }, h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: toSchedule }, 'Jadwal Saya')));
 
   if (schedule.status === 'selesai') {
@@ -204,7 +211,7 @@ export async function visitView(main, user, ctx, { goTo, params } = {}) {
     serverError.textContent = '';
     update();
     try {
-      await api('/api/records', {
+      const saved = await api('/api/records', {
         method: 'POST',
         body: { schedule_id: Number(sid), soap: cleanSoap(draft) },
         headers: { 'Idempotency-Key': key },
@@ -212,7 +219,9 @@ export async function visitView(main, user, ctx, { goTo, params } = {}) {
       });
       mem.drafts.delete(sid);
       mem.keys.delete(sid);
-      toast(`SOAP tersimpan. Tugas ${schedule.customer.name} selesai.`);
+      toast(saved?.schedule?.phase === 'timer'
+        ? `SOAP tersimpan. Hitung mundur ${schedule.customer.name} dimulai; setelah waktu habis menunggu approve.`
+        : `SOAP tersimpan. Tugas ${schedule.customer.name} selesai.`);
       busy = false;
       if (ctx.isCurrent()) toSchedule();
       return;
@@ -267,7 +276,7 @@ function servicesBox(schedule) {
   return h('section', { class: 'visit-services', 'aria-label': 'Layanan' },
     h('div', { class: 'visit-services__head' },
       h('h2', { class: 'visit__title' }, `Layanan (${list.length})`),
-      h('span', { class: 'hint' }, 'Ditentukan admin, tidak bisa diubah.')),
+      ),
     h('ul', { class: 'visit-services__list' }, ...list.map((s) => h('li', null, s.name))));
 }
 

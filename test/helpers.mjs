@@ -21,6 +21,7 @@ function buildEnv(tmp, dataDir, overrides) {
     HOME: tmp, PORT: '0', HOST: '127.0.0.1', DATA_DIR: dataDir,
     ADMIN_USERNAME: ADMIN.username, ADMIN_PASSWORD: ADMIN.password,
     ACCESS_HOURS: 'off', // tes lama tidak boleh bergantung pada jam; tes jam akses menimpanya lewat `env`
+    SESSION_TIMER: 'off', // tes lama tidak menunggu hitung mundur/approve; tes timer menimpanya lewat `env`
   });
   for (const [k, v] of Object.entries(overrides)) {
     if (v === undefined || v === null) delete env[k]; // env: { ADMIN_PASSWORD: undefined } = hapus

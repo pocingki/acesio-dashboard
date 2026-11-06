@@ -234,7 +234,7 @@ export const emptyState = (title, text) => h('div', { class: 'empty' }, h('b', n
 
 // ---------- tambahan v2 ----------
 export const EMP_LABEL = { tetap: 'Karyawan tetap', part_time: 'Part time' };
-export const ROLE_LABEL = { user: 'User', admin: 'Admin', supervisor: 'Supervisor' };
+export const ROLE_LABEL = { user: 'Terapis', admin: 'Admin', supervisor: 'Supervisor' };
 
 // "YYYY-MM-DD" adalah tanggal kalender; diformat di UTC supaya tidak bergeser oleh zona mana pun.
 export function fmtDay(ymd, short = false) {

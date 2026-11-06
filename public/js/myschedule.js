@@ -1,14 +1,17 @@
 // Tab "Jadwal Saya" untuk user: dashboard jadwal harian (default hari ini) dengan filter tanggal.
-// Mengklik baris yang boleh dijalankan = memulai jadwal lalu membuka tab Input Customer.
+// Mengklik baris yang boleh dijalankan berjalan = melanjutkan isi SOAP. Jadwal Baru tidak mulai dengan klik baris; user menekan tombol Mulai.
 // Fungsi murni di bagian atas diekspor untuk tes; modul ini tidak menyentuh document saat dimuat.
 import { api } from './api.js';
 import { h, icon, toast, openModal, todayInTz, fmtDay } from './ui.js';
-import { schedulePill, fmtLongDay, servicesSummary, SOAP_PARTS } from './schedule-ui.js';
+import { schedulePill, fmtLongDay, servicesSummary, SOAP_PARTS, countdownEl } from './schedule-ui.js';
 
 export const RANGE_ERROR = 'Tanggal awal tidak boleh setelah tanggal akhir';
 export const TRUNCATED_NOTE = 'Menampilkan 500 jadwal pertama, persempit rentang tanggal';
 export const MSG_NOT_TODAY = 'Jadwal ini bukan untuk hari ini. Jadwal hanya bisa dijalankan pada tanggalnya.';
 export const MSG_OVERDUE = 'Jadwal terlewat, hubungi admin.';
+export const MSG_WAIT_TIMER = 'SOAP sudah disimpan dan hitung mundur berjalan. Setelah waktu habis, tugas menunggu approve admin atau supervisor.';
+export const MSG_WAIT_APPROVAL = 'SOAP sudah disimpan dan waktu habis. Menunggu approve admin atau supervisor; setelah disetujui tugas Selesai.';
+export const POLL_MS = 15_000; // segarkan senyap selama ada tugas yang menunggu approve
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 export const isYmd = (v) => typeof v === 'string' && YMD.test(v) && !Number.isNaN(Date.parse(`${v}T12:00:00Z`));
@@ -58,14 +61,20 @@ export function groupByDay(schedules) {
   return [...map.keys()].sort().map((day) => ({ day, items: map.get(day) }));
 }
 
-// 'start' | 'detail' | 'overdue' | 'future' | 'none'
+// 'start' | 'wait' | 'detail' | 'overdue' | 'future' | 'none'
+// 'wait' = SOAP sudah disimpan: sedang hitung mundur atau menunggu approve (tidak ada yang perlu dilakukan user).
+// 'start' = boleh Mulai (Baru) atau isi SOAP (berjalan, SOAP belum disimpan).
 export function rowAction(s, today) {
   if (s.status === 'batal') return 'none';
   if (s.status === 'selesai') return 'detail';
   if (s.overdue || s.day < today) return 'overdue';
   if (s.day > today) return 'future';
+  if (s.status === 'berjalan' && (s.phase === 'timer' || s.phase === 'menunggu')) return 'wait';
   return 'start';
 }
+
+// Ada jadwal yang statusnya akan berubah sendiri (hitung mundur atau menunggu approve)?
+export const needsPolling = (list) => (list || []).some((s) => s.status === 'berjalan' && (s.phase === 'timer' || s.phase === 'menunggu'));
 
 export function summaryParts(summary) {
   const sm = summary || {};
@@ -89,7 +98,10 @@ export function scheduleView(main, user, ctx, { goTo } = {}) {
   const startDay = ctx.params?.day;
   let range = isYmd(startDay) ? { from: startDay, to: startDay, all: false } : scheduleRange('today', today);
   let seq = 0;
+  let pollTimer = null;
   const starting = new Set(); // id jadwal yang sedang dimulai (cegah klik ganda)
+  const stopPoll = () => { if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; } };
+  signal?.addEventListener?.('abort', stopPoll, { once: true });
 
   const title = h('h1', null, 'Jadwal Saya');
   const dayLine = h('p', { class: 'us-day' });
@@ -174,19 +186,23 @@ export function scheduleView(main, user, ctx, { goTo } = {}) {
       h('div', { class: 'us-retry' }, h('button', { class: 'btn btn--primary btn--sm', type: 'button', onclick: () => load() }, 'Coba lagi'))));
   }
 
-  async function load() {
+  // silent = segarkan tanpa tulisan "Memuat" (dipakai saat hitung mundur habis dan saat polling approve).
+  async function load({ silent = false } = {}) {
     const mine = ++seq;
+    stopPoll();
     paintControls();
-    showLoading();
+    if (!silent) showLoading();
     try {
       const data = await api(`/api/my/schedules?${scheduleQuery(range)}`, { signal });
       if (!ctx.isCurrent() || mine !== seq) return;
       if (isYmd(data?.today)) today = data.today;
       paintControls();
       render(data);
+      if (needsPolling(data.schedules)) pollTimer = setTimeout(() => { if (ctx.isCurrent()) load({ silent: true }); }, POLL_MS);
     } catch (e) {
       if (isAbort(e) || !ctx.isCurrent() || mine !== seq) return;
-      showError(e);
+      if (!silent) showError(e); // gagal saat segar senyap: biarkan layar lama, coba lagi pada putaran berikut
+      else pollTimer = setTimeout(() => { if (ctx.isCurrent()) load({ silent: true }); }, POLL_MS);
     }
   }
 
@@ -215,9 +231,17 @@ export function scheduleView(main, user, ctx, { goTo } = {}) {
     const tone = s.status === 'batal' ? 'batal' : (s.overdue || action === 'overdue') ? 'overdue' : s.status;
     const cust = s.customer || {};
     const svc = servicesSummary(s.services || []);
-    const btn = h('button', {
-      class: `us-item us-item--${tone}`, type: 'button', disabled: action === 'none' ? true : null,
-      onclick: () => open(s, action, btn),
+    const idle = action === 'start' && s.status === 'baru'; // jadwal Baru: hanya tombol Mulai yang memulai
+    const waiting = action === 'wait'; // hitung mundur / menunggu approve: tidak bisa diklik
+    const inert = idle || waiting;
+    const status = waiting
+      ? (s.phase === 'timer'
+        ? h('span', { class: 'us-card__cta us-card__wait' }, countdownEl(s.remaining_sec, { signal, onDone: () => { if (ctx.isCurrent()) load({ silent: true }); } }))
+        : h('span', { class: 'us-card__cta us-card__wait', role: 'status' }, 'Waktu habis. Menunggu approve admin/supervisor…'))
+      : null;
+    const btn = h(inert ? 'div' : 'button', {
+      class: `us-item us-item--${tone}${waiting ? ` us-item--${s.phase}` : ''}`, type: inert ? null : 'button', disabled: action === 'none' ? true : null,
+      onclick: inert ? null : () => open(s, action, btn),
     },
     h('span', { class: 'us-time' },
       h('span', { class: 'us-time__start' }, s.start_time),
@@ -225,10 +249,13 @@ export function scheduleView(main, user, ctx, { goTo } = {}) {
     h('span', { class: 'us-card' },
       h('span', { class: 'us-card__top' },
         h('span', { class: 'us-card__name' }, cust.name || '-'),
-        schedulePill(s.status, !!s.overdue)),
+        schedulePill(s.status, !!s.overdue, s.phase)),
       h('span', { class: 'us-card__rm' }, cust.rm_no ? `No RM ${cust.rm_no}` : null),
       svc ? h('span', { class: 'us-card__svc' }, svc) : null,
-      s.note ? h('span', { class: 'us-card__note' }, s.note) : null));
+      s.note ? h('span', { class: 'us-card__note' }, s.note) : null,
+      status,
+      idle ? h('span', { class: 'us-card__cta' }, h('button', { class: 'btn btn--primary btn--sm', type: 'button', onclick: (e) => mulaiTugas(s, e.currentTarget) }, 'Mulai'))
+        : action === 'start' ? h('span', { class: 'us-card__cta' }, 'Isi SOAP dulu, hitung mundur mulai setelah disimpan →') : null));
     return h('li', null, btn);
   }
 
@@ -239,6 +266,28 @@ export function scheduleView(main, user, ctx, { goTo } = {}) {
     if (action === 'overdue') return showInfo(s, MSG_OVERDUE);
     if (action === 'future') return showInfo(s, MSG_NOT_TODAY);
     return undefined;
+  }
+
+  // Mulai: jadwal Baru -> Sedang berjalan, tetap di halaman ini. Isi SOAP lewat klik baris berjalan.
+  async function mulaiTugas(s, btn) {
+    if (starting.has(s.id)) return;
+    starting.add(s.id);
+    btn.disabled = true;
+    try {
+      await api(`/api/my/schedules/${s.id}/start`, { method: 'POST', signal });
+      if (!ctx.isCurrent()) return;
+      // Alur: Mulai -> wajib isi SOAP -> baru hitung mundur berjalan. Langsung buka form SOAP.
+      if (typeof goTo === 'function') { goTo('input', { scheduleId: s.id }); return; }
+      toast('Tugas dimulai. Isi SOAP dulu; hitung mundur berjalan setelah SOAP disimpan.');
+      load();
+    } catch (e) {
+      if (isAbort(e) || !ctx.isCurrent()) return;
+      toast(e.message || 'Tugas belum bisa dimulai', 'err');
+      if (e.code === 'SCHEDULE_STATE' || e.code === 'SCHEDULE_NOT_TODAY') load();
+    } finally {
+      starting.delete(s.id);
+      if (btn.isConnected) btn.disabled = false;
+    }
   }
 
   async function startSchedule(s, btn) {

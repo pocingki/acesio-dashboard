@@ -1,12 +1,13 @@
 import { db } from './db.js';
 import { HttpError } from './util.js';
 
-// Lima tipe notifikasi untuk user pemilik jadwal (kontrak bagian 3 dan 5).
+// Enam tipe notifikasi untuk user pemilik jadwal (kontrak bagian 3 dan 5).
 export const NOTIFICATION_TYPES = Object.freeze({
   tugas_baru: 'tugas_baru',
   tugas_diubah: 'tugas_diubah',
   tugas_berjalan: 'tugas_berjalan',
   tugas_selesai: 'tugas_selesai',
+  tugas_disetujui: 'tugas_disetujui',
   tugas_dibatalkan: 'tugas_dibatalkan',
 });
 
@@ -16,6 +17,7 @@ export const NOTIFICATION_TITLES = Object.freeze({
   tugas_diubah: 'Jadwal diubah',
   tugas_berjalan: 'Tugas sedang dijalani',
   tugas_selesai: 'Tugas selesai',
+  tugas_disetujui: 'Pekerjaan disetujui, isi SOAP',
   tugas_dibatalkan: 'Tugas dibatalkan',
 });
 

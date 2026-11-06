@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 const {
-  SCHEDULE_STATUS_LABEL, fmtTimeRange, fmtLongDay, servicesSummary, SOAP_PARTS,
+  SCHEDULE_STATUS_LABEL, fmtTimeRange, fmtLongDay, servicesSummary, SOAP_PARTS, fmtCountdown, PHASE_LABEL, STAFF_STATUS_FILTER,
 } = await import('../public/js/schedule-ui.js');
 
 test('label status jadwal', () => {
@@ -49,4 +49,24 @@ test('modul jadwal aman diimpor di Node dan mengekspor scheduleView', async () =
   assert.equal(typeof m.scheduleView, 'function');
   const staff = await import('../public/js/staff.js');
   assert.equal(typeof staff.renderStaffApp, 'function');
+});
+
+test('fmtCountdown: MM:SS, jam bila perlu, nilai tak sah jadi 00:00', () => {
+  assert.equal(fmtCountdown(0), '00:00');
+  assert.equal(fmtCountdown(59), '00:59');
+  assert.equal(fmtCountdown(125), '02:05');
+  assert.equal(fmtCountdown(3600), '1:00:00');
+  assert.equal(fmtCountdown(3725), '1:02:05');
+  assert.equal(fmtCountdown(-5), '00:00');
+  assert.equal(fmtCountdown('abc'), '00:00');
+  assert.equal(fmtCountdown(undefined), '00:00');
+  assert.equal(fmtCountdown(59.9), '00:59');
+});
+
+test('label fase dan opsi filter status staf', () => {
+  assert.equal(PHASE_LABEL.menunggu, 'Menunggu approve');
+  assert.equal(PHASE_LABEL.soap, 'Isi SOAP');
+  assert.deepEqual(Object.keys(PHASE_LABEL), ['soap', 'timer', 'menunggu']);
+  assert.equal(STAFF_STATUS_FILTER.menunggu, 'Menunggu approve');
+  assert.deepEqual(Object.keys(STAFF_STATUS_FILTER), ['baru', 'berjalan', 'selesai', 'batal', 'menunggu']);
 });

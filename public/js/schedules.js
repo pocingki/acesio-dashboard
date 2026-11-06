@@ -8,7 +8,7 @@ import {
   createGate, tableWrap, pagerNodes, rangeLabel, NO_CTX,
 } from './customers.js';
 import {
-  schedulePill, fmtTimeRange, fmtLongDay, servicesSummary, SCHEDULE_STATUS_LABEL, SOAP_PARTS,
+  schedulePill, fmtTimeRange, fmtLongDay, servicesSummary, STAFF_STATUS_FILTER, SOAP_PARTS, countdownEl,
 } from './schedule-ui.js';
 
 const isAbort = (e) => e?.name === 'AbortError';
@@ -45,6 +45,24 @@ async function busy(btns, fn) {
   }
 }
 
+// Approve = admin atau supervisor menyatakan pekerjaan terapis selesai (jadwal Selesai). Hanya setelah SOAP terisi dan hitung mundur habis.
+const canApprove = (s) => s.status === 'berjalan' && s.phase === 'menunggu';
+
+async function approveRequest(s, { onDone, btns }) {
+  const label = `${s.customer?.name || 'customer'} (${s.user?.name || 'terapis'})`;
+  if (!(await confirmDialog(`Approve pekerjaan ${label}? Jadwal menjadi Selesai dan layanan serta komisi dicatat.`, { confirmText: 'Ya, approve' }))) return;
+  await busy(btns, async () => {
+    try {
+      await api(`/api/staff/schedules/${s.id}/approve`, { method: 'POST', body: {} });
+      toast('Pekerjaan di-approve. Jadwal selesai dan layanan tercatat.');
+    } catch (e) {
+      if (isAbort(e)) return;
+      toast(e.message, 'err'); // mis. 409: sudah di-approve atau status berubah
+    }
+    if (onDone) onDone();
+  });
+}
+
 // ======================= TAMPILAN UTAMA =======================
 export function scheduleView(main, user, ctx = NO_CTX) {
   const gate = createGate(ctx);
@@ -54,11 +72,12 @@ export function scheduleView(main, user, ctx = NO_CTX) {
   const userSel = h('select', { class: 'input select', id: 'sch-user' }, h('option', { value: '' }, 'Semua user'));
   const statusSel = h('select', { class: 'input select', id: 'sch-status' },
     h('option', { value: '' }, 'Semua status'),
-    Object.entries(SCHEDULE_STATUS_LABEL).map(([v, l]) => h('option', { value: v }, l)));
+    Object.entries(STAFF_STATUS_FILTER).map(([v, l]) => h('option', { value: v }, l)));
   const q = h('input', { class: 'input', type: 'search', id: 'sch-q', placeholder: 'Cari nama customer, No RM, atau nama user' });
   const rangeMsg = h('p', { class: 'error range-msg', role: 'alert' });
   const summary = h('p', { class: 'muted', role: 'status' }, 'Memuat…');
   const box = h('div', { 'aria-live': 'polite' });
+  const pendingNote = h('p', { class: 'sch-pending', role: 'status', hidden: true });
   const pager = h('nav', { class: 'pager', 'aria-label': 'Halaman jadwal' });
   let page = 1;
   let firstLoad = true;
@@ -84,7 +103,7 @@ export function scheduleView(main, user, ctx = NO_CTX) {
   }
 
   // ---------- memuat daftar ----------
-  async function load() {
+  async function load({ silent = false } = {}) {
     const req = gate.begin();
     const params = new URLSearchParams({ page: String(page) });
     if (from.value) params.set('from', from.value);
@@ -92,12 +111,14 @@ export function scheduleView(main, user, ctx = NO_CTX) {
     if (userSel.value) params.set('user_id', userSel.value);
     if (statusSel.value) params.set('status', statusSel.value);
     if (q.value.trim()) params.set('q', q.value.trim());
-    box.setAttribute('aria-busy', 'true');
+    if (!silent) box.setAttribute('aria-busy', 'true');
     if (firstLoad) box.replaceChildren(emptyState('Memuat jadwal…', ''));
     try {
-      const { schedules, total, page: pg, pageSize } = await api(`/api/staff/schedules?${params}`, { signal: req.signal });
+      const { schedules, total, page: pg, pageSize, pending_approval: pending } = await api(`/api/staff/schedules?${params}`, { signal: req.signal });
       if (!req.ok()) return;
       firstLoad = false;
+      pendingNote.textContent = pending ? `${fmtNum(pending)} jadwal menunggu approve` : '';
+      pendingNote.hidden = !pending;
       const size = pageSize || 50;
       const pages = Math.max(1, Math.ceil(total / size));
       if (page > pages) { page = pages; load(); return; }
@@ -134,6 +155,11 @@ export function scheduleView(main, user, ctx = NO_CTX) {
       if (s.status === 'baru') {
         actions.push(h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => openForm({ schedule: s, workers, ctx, onSaved: load }) }, 'Ubah'));
       }
+      if (canApprove(s)) {
+        const approveBtn = h('button', { class: 'btn btn--primary btn--sm', type: 'button' }, 'Approve');
+        approveBtn.addEventListener('click', () => approveRequest(s, { btns: actions, onDone: () => { if (ctx.isCurrent()) load(); } }));
+        actions.push(approveBtn);
+      }
       if (canCancel(s, user)) {
         const cancelBtn = h('button', { class: 'btn btn--danger btn--sm', type: 'button' }, 'Batalkan');
         cancelBtn.addEventListener('click', () => cancelSchedule(s, actions));
@@ -145,7 +171,10 @@ export function scheduleView(main, user, ctx = NO_CTX) {
         h('td', { 'data-label': 'Customer' }, h('b', null, s.customer?.name || '–'), h('small', null, s.customer?.rm_no || '–')),
         h('td', { 'data-label': 'Layanan', title: (s.services || []).map((x) => x.name).join(', ') }, servicesSummary(s.services)),
         h('td', { 'data-label': 'Catatan', class: 'sch-note' }, dash(s.note)),
-        h('td', { 'data-label': 'Status' }, schedulePill(s.status, s.overdue)),
+        h('td', { 'data-label': 'Status' }, schedulePill(s.status, s.overdue, s.phase),
+          s.phase === 'timer' && !s.overdue
+            ? h('small', { class: 'sch-timer' }, countdownEl(s.remaining_sec, { signal: ctx.signal, label: 'Sisa', onDone: () => { if (ctx.isCurrent()) load({ silent: true }); } }))
+            : null),
         h('td', { 'data-label': 'Aksi', class: 'sch-actions' }, h('div', { class: 'row-actions' }, actions)));
     }));
     return tableWrap(h('table', { class: 'sch-table' },
@@ -205,7 +234,7 @@ export function scheduleView(main, user, ctx = NO_CTX) {
     h('div', { class: 'toolbar sch-filters mb' },
       field('Dari tanggal', from), field('Sampai tanggal', to), field('User', userSel), field('Status', statusSel),
       h('div', { class: 'field toolbar__grow' }, h('label', { for: 'sch-q' }, 'Cari'), q)),
-    rangeMsg, box, pager);
+    rangeMsg, pendingNote, box, pager);
   syncQuick();
   loadWorkers();
   load();
@@ -219,17 +248,23 @@ function openDetail(s, ctx = NO_CTX) {
 
   function render(d) {
     const row = (label, value) => [h('dt', null, label), h('dd', null, value)];
-    const soap = d.status === 'selesai' && d.soap
+    const soap = d.soap
       ? h('section', { class: 'sch-soap', 'aria-label': 'SOAP' },
         h('h3', { class: 'sch-sub' }, 'SOAP'),
-        h('p', { class: 'hint' }, 'Hanya baca. Diisi terapis saat menyelesaikan jadwal.'),
+        h('p', { class: 'hint' }, 'Hanya baca. Diisi terapis sebelum hitung mundur dimulai.'),
         SOAP_PARTS.map((p) => h('div', { class: 'sch-soap__part' },
           h('h4', null, `${p.key.toUpperCase()} · ${p.label}`),
           h('p', { class: 'sch-soap__text' }, d.soap[p.key] || '–'))))
       : null;
     const customer = d.customer || {};
     content.replaceChildren(
-      h('div', { class: 'summary-chips summary-chips--tight' }, schedulePill(d.status, d.overdue)),
+      h('div', { class: 'summary-chips summary-chips--tight' }, schedulePill(d.status, d.overdue, d.phase),
+        d.phase === 'timer' && !d.overdue ? countdownEl(d.remaining_sec, { onDone: () => { if (ctx.isCurrent()) load(); } }) : null),
+      canApprove(d) && !d.overdue
+        ? h('div', { class: 'sch-approve' },
+          h('p', null, 'SOAP sudah diisi dan waktu layanan habis. Periksa SOAP di bawah, lalu approve untuk menyatakan pekerjaan terapis selesai; layanan dan komisi dicatat saat itu.'),
+          (() => { const b = h('button', { class: 'btn btn--primary', type: 'button' }, 'Approve pekerjaan'); b.addEventListener('click', () => approveRequest(d, { btns: b, onDone: load })); return b; })())
+        : null,
       h('dl', { class: 'kv' },
         row('Tanggal', fmtLongDay(d.day)),
         row('Waktu', fmtTimeRange(d.start_time, d.end_time)),
@@ -238,6 +273,8 @@ function openDetail(s, ctx = NO_CTX) {
         row('Catatan', d.note || '–'),
         row('Dibuat oleh', d.created_by_name || '–'),
         d.started_at ? row('Dimulai', fmtDate(d.started_at)) : null,
+        d.due_at ? row('Hitung mundur sampai', fmtDate(d.due_at)) : null,
+        d.approved_at ? row('Di-approve', `${fmtDate(d.approved_at)}${d.approved_by_name ? ` oleh ${d.approved_by_name}` : ''}`) : null,
         d.completed_at ? row('Selesai', fmtDate(d.completed_at)) : null),
       h('h3', { class: 'sch-sub' }, `Layanan (${fmtNum((d.services || []).length)})`),
       (d.services || []).length

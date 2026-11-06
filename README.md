@@ -32,6 +32,8 @@ Data contoh: `npm run seed:demo` membuat user demo (sari, budi, dewi) dengan **p
 | `SESSION_HOURS` | `12` | Masa berlaku sesi login |
 | `ACCESS_HOURS` | `06:00-23:00` | Jam akses akun **user** (format `HH:MM-HH:MM`, zona `APP_TZ`; mulai harus lebih kecil dari akhir). `off` = tanpa batas. Nilai tidak valid memakai default dan mencetak peringatan |
 | `APP_FAKE_NOW_FILE` | kosong | **Khusus tes.** Hanya dibaca bila `NODE_ENV=test`; berisi waktu palsu (ISO) untuk menguji jam akses. **Jangan dipakai di produksi** |
+| `SESSION_MINUTES` | `60` | Durasi hitung mundur (menit) bila jadwal **tanpa jam selesai**. Bila jam selesai diisi, durasi = jam selesai − jam mulai |
+| `SESSION_TIMER` | menyala | `off` mematikan alur hitung mundur dan approve (perilaku lama: Mulai, isi SOAP, langsung Selesai). Untuk tes; jangan dipakai di produksi |
 | `COOKIE_SECURE` | `false` | `true` di produksi (HTTPS) |
 | `TRUST_PROXY` | `false` | `true` hanya bila di belakang reverse proxy tepercaya; lihat bagian Keamanan |
 | `BACKUP_DIR` | `./backups` | Hanya dibaca `scripts/backup.js` |
@@ -76,16 +78,19 @@ Admin dan supervisor (staf) **membuat dan mengelola jadwal**; user **menjalankan
 1. **Tambah jadwal**: pilih user (hanya akun aktif), cari customer lewat No RM atau nama, **centang layanan yang akan dikerjakan** (minimal 1, maksimal 29, dari kotak layanan), isi tanggal, jam mulai, jam selesai (boleh kosong), dan catatan untuk terapis (maksimal 500 karakter). Tanggal tidak boleh lampau.
 2. Daftar bisa disaring menurut rentang tanggal, user, status, dan kata kunci (nama customer, No RM, nama user). Daftar tidak menampilkan SOAP; SOAP hanya ada di detail jadwal yang sudah selesai.
 3. **Ubah** (termasuk mengganti layanan atau user) hanya selama status **Baru**. **Batalkan**: admin hanya dari status Baru; supervisor juga dari Sedang dijalani. Jadwal Selesai atau Dibatalkan tidak bisa diubah lagi (409 `SCHEDULE_STATE`).
-4. User menerima notifikasi untuk tiap tugas baru, perubahan, dan pembatalan. Bila admin mengganti user, user lama menerima pembatalan dan user baru menerima tugas baru.
+4. **Approve pekerjaan terapis**: jadwal yang hitung mundurnya habis tampil dengan status **Menunggu approve** (ada penanda jumlahnya di atas tabel dan filter status *Menunggu approve*). Admin atau supervisor menekan **Approve** di baris atau di detail jadwal. Admin/supervisor dapat membaca SOAP di detail jadwal sebelum approve. Approve hanya bisa pada tanggal jadwal, setelah SOAP tersimpan dan waktu habis (sebelum itu 409 `SOAP_PENDING` / `TIMER_RUNNING`), dan membuat jadwal Selesai. Supervisor tetap bisa membatalkan jadwal yang menunggu approve.
+5. User menerima notifikasi untuk tiap tugas baru, perubahan, dan pembatalan. Bila admin mengganti user, user lama menerima pembatalan dan user baru menerima tugas baru.
 
 **User**
 1. Login (pukul 06.00–22.59). Tab awal **Beranda** menampilkan angka **customer hari ini** (customer unik pada jadwal hari ini yang tidak dibatalkan), ringkasan status, dan jadwal berikutnya. Ketuk angka itu untuk membuka **Jadwal Saya**.
 2. **Jadwal Saya** menampilkan jadwal **hari ini** secara bawaan. Ada pintasan *Hari ini*, *Besok*, *7 hari ke depan*, *Semua*, dan pilihan tanggal sendiri. Tiap baris memuat jam, customer, No RM, dan layanan yang ditentukan admin.
-3. **Ketuk baris jadwal** hari ini: jadwal otomatis **dimulai** (Baru → Sedang dijalani) dan halaman **Input customer** terbuka untuk jadwal itu. Customer dan layanan sudah terisi; **user tidak memilih layanan** dan tidak mencari customer. Ketuk lagi jadwal yang sedang dijalani untuk melanjutkan.
-4. Isi keempat bagian **SOAP** (Subjective, Objective, Assessment, Planning; wajib, tiap bagian 3–2000 karakter) lalu **Simpan**. Sistem mencatat satu layanan untuk setiap layanan pada jadwal itu, jadwal menjadi **Selesai**, dan user kembali ke Jadwal Saya. Draf SOAP bertahan selama pindah tab, hilang saat keluar.
-5. Jadwal tanggal lain hanya bisa dilihat. Jadwal hari lampau yang belum selesai tampil sebagai **Terlewat**; hubungi admin.
-6. **Ikon lonceng** di kanan atas menampilkan notifikasi (tugas baru, diubah, sedang dijalani, selesai, dibatalkan) dan jumlah yang belum dibaca. Mengetuk notifikasi membuka Jadwal Saya pada tanggal jadwal itu.
-7. Tab **Riwayat Customer**: lihat, cari, hapus data **hari ini** milik sendiri, dan tarik CSV/Excel. Komisi tidak pernah terlihat. Menghapus riwayat tidak mengubah status jadwal (tetap Selesai).
+3. Tekan **Mulai** pada jadwal hari ini (di Beranda atau Jadwal Saya): jadwal menjadi **Sedang dijalani** dan halaman **Input customer** langsung terbuka. Customer dan layanan sudah terisi; **user tidak memilih layanan** dan tidak mencari customer. **SOAP wajib diisi dulu**; hitung mundur belum berjalan.
+4. Isi keempat bagian **SOAP** (Subjective, Objective, Assessment, Planning; wajib, tiap bagian 3–2000 karakter) lalu **Simpan**. Saat itulah **hitung mundur mulai** dan tampil di kartu jadwal (Beranda dan Jadwal Saya). Lamanya = jam selesai − jam mulai jadwal (atau `SESSION_MINUTES` bila jam selesai kosong). Sisa waktu dihitung server, jadi tetap benar saat halaman dimuat ulang atau jam perangkat salah. Draf SOAP bertahan selama pindah tab, hilang saat keluar.
+5. Saat waktu habis, jadwal berubah menjadi **Menunggu approve**: user menunggu **admin atau supervisor** menyatakan pekerjaan selesai. Layar user menyegarkan diri tiap 15 detik. Begitu di-approve, jadwal menjadi **Selesai**, sistem mencatat satu layanan untuk setiap layanan pada jadwal itu (komisi dari pengaturan komisi user), dan user mendapat notifikasi *Tugas selesai*.
+6. Setelah SOAP disimpan, user tidak bisa mengubahnya atau menyimpan lagi (409 `SOAP_ALREADY_SAVED`). Tanpa Mulai, SOAP ditolak (409 `SCHEDULE_STATE`).
+7. Jadwal tanggal lain hanya bisa dilihat. Jadwal hari lampau yang belum selesai tampil sebagai **Terlewat**; hubungi admin.
+8. **Ikon lonceng** di kanan atas menampilkan notifikasi (tugas baru, diubah, sedang dijalani, selesai, dibatalkan) dan jumlah yang belum dibaca. Mengetuk notifikasi membuka Jadwal Saya pada tanggal jadwal itu.
+9. Tab **Riwayat Customer**: lihat, cari, hapus data **hari ini** milik sendiri, dan tarik CSV/Excel. Komisi tidak pernah terlihat. Menghapus riwayat tidak mengubah status jadwal (tetap Selesai).
 
 ## Jam akses
 
@@ -93,15 +98,17 @@ Hanya akun **User** yang dibatasi: boleh pukul **06:00:00 sampai 22:59:59** menu
 
 ## Jadwal dan SOAP
 
-Status jadwal: **Baru** → **Sedang dijalani** → **Selesai**, atau **Dibatalkan**. *Terlewat* bukan status tersimpan: jadwal Baru atau Sedang dijalani dengan tanggal sebelum hari ini.
+Status jadwal: **Baru** → **Sedang dijalani** → **Selesai**, atau **Dibatalkan**. Di dalam *Sedang dijalani* ada tiga **fase** (field `phase` pada API; tidak disimpan, dihitung dari `flow`, `due_at`, dan waktu sekarang): `soap` (sudah Mulai, menunggu SOAP, hitung mundur belum jalan) → `timer` (SOAP tersimpan, hitung mundur berjalan) → `menunggu` (waktu habis, menunggu approve). Approve admin/supervisor membuat jadwal **Selesai**. Jadwal yang sedang dijalani dengan `phase: null` (dimulai sebelum alur ini ada, atau `SESSION_TIMER=off`) memakai alur lama: SOAP disimpan = langsung Selesai.
 
-Saat user menyimpan SOAP, dalam satu transaksi server memeriksa jadwal dan SOAP, membuat satu record per layanan jadwal (komisi dihitung seperti biasa dari pengaturan komisi user), menyimpan SOAP, mengubah status menjadi Selesai, dan membuat notifikasi. Customer dan layanan **selalu** diambil dari jadwal; `customer_id` atau `service_ids` dari klien diabaikan.
+Simpan SOAP (`POST /api/records`) pada alur baru: jadwal Baru (belum Mulai) → 409 `SCHEDULE_STATE`; fase `timer` atau `menunggu` (SOAP sudah tersimpan) → 409 `SOAP_ALREADY_SAVED`. Approve: fase `soap` → 409 `SOAP_PENDING`; fase `timer` → 409 `TIMER_RUNNING`.
+
+Saat user menyimpan SOAP, dalam satu transaksi server memeriksa jadwal dan SOAP, menyimpan SOAP, dan memasang batas hitung mundur (`due_at`). Saat admin/supervisor approve, dalam satu transaksi server membuat satu record per layanan jadwal (komisi dihitung seperti biasa dari pengaturan komisi user), mengubah status menjadi Selesai, dan membuat notifikasi. Pada alur lama kedua langkah itu terjadi sekaligus saat SOAP disimpan. Customer dan layanan **selalu** diambil dari jadwal; `customer_id` atau `service_ids` dari klien diabaikan.
 
 SOAP kunjungan adalah data sensitif: hanya user pemilik jadwal dan admin/supervisor yang bisa membacanya; tidak pernah dikirim ke WhatsApp atau bot dan tidak masuk log audit (hanya nama bagiannya).
 
 ## Notifikasi
 
-Hanya untuk user pemilik jadwal. Lima tipe: `tugas_baru`, `tugas_diubah`, `tugas_berjalan`, `tugas_selesai`, `tugas_dibatalkan`. Isinya: judul pendek dan `{nama customer} · {tanggal} {jam mulai}`. Notifikasi untuk admin/supervisor belum ada. Notifikasi dibuat di transaksi yang sama dengan perubahan jadwalnya; yang lebih dari 90 hari dihapus setiap server dinyalakan.
+Hanya untuk user pemilik jadwal. Lima tipe: `tugas_baru`, `tugas_diubah`, `tugas_berjalan`, `tugas_selesai` (juga dikirim saat approve), `tugas_dibatalkan`. Isinya: judul pendek dan `{nama customer} · {tanggal} {jam mulai}`. Notifikasi untuk admin/supervisor belum ada. Notifikasi dibuat di transaksi yang sama dengan perubahan jadwalnya; yang lebih dari 90 hari dihapus setiap server dinyalakan.
 
 ## Aturan data
 
@@ -129,16 +136,17 @@ Hanya untuk user pemilik jadwal. Lima tipe: `tugas_baru`, `tugas_diubah`, `tugas
 
 ### API jadwal, SOAP, dan notifikasi
 
-Kode error baru: `SCHEDULE_REQUIRED`, `SOAP_REQUIRED`, `SCHEDULE_NOT_TODAY`, `SCHEDULE_STATE` (409), `OUTSIDE_HOURS` (403).
+Kode error baru: `SCHEDULE_REQUIRED`, `SOAP_REQUIRED`, `SCHEDULE_NOT_TODAY`, `SCHEDULE_STATE` (409), `OUTSIDE_HOURS` (403), `TIMER_RUNNING` (409, waktu layanan belum habis), `APPROVAL_PENDING` (409, menunggu approve).
 
 **Staf (admin dan supervisor)**
 
 | Jalur | Fungsi |
 |---|---|
-| `GET /api/staff/schedules?from&to&user_id&status&q&page` | Daftar jadwal (`{schedules, total, page, pageSize}`), tanpa SOAP |
+| `GET /api/staff/schedules?from&to&user_id&status&q&page` | Daftar jadwal (`{schedules, total, page, pageSize, pending_approval}`), tanpa SOAP. `status` boleh `menunggu` (SOAP tersimpan, waktu habis, belum di-approve) |
 | `GET /api/staff/schedules/:id` | Detail, termasuk SOAP bila sudah selesai |
 | `POST /api/staff/schedules` | Buat jadwal: `{user_id, customer_id` atau `customer_rm, service_ids, day, start_time, end_time?, note?}` |
 | `PATCH /api/staff/schedules/:id` | Ubah (hanya status Baru; `service_ids` mengganti seluruh daftar) |
+| `POST /api/staff/schedules/:id/approve` | Menyatakan pekerjaan terapis selesai (admin dan supervisor): hanya jadwal Sedang dijalani yang SOAP-nya sudah tersimpan dan hitung mundurnya habis, pada tanggalnya. Hasilnya jadwal Selesai dan layanan tercatat |
 | `POST /api/staff/schedules/:id/cancel` | Batalkan (admin dari Baru; supervisor dari Baru atau Sedang dijalani) |
 | `GET /api/staff/schedule-workers` | User aktif untuk pilihan di form jadwal |
 
@@ -146,11 +154,11 @@ Kode error baru: `SCHEDULE_REQUIRED`, `SOAP_REQUIRED`, `SCHEDULE_NOT_TODAY`, `SC
 
 | Jalur | Fungsi |
 |---|---|
-| `GET /api/my/home` | `{today, customers_today, by_status, next, unread}` |
+| `GET /api/my/home` | `{today, customers_today, by_status, phases, next, schedules, unread}` (`phases` = jumlah jadwal berjalan hari ini per fase: `soap`, `timer`, `menunggu`) |
 | `GET /api/my/schedules?from&to` atau `?all=1` | Jadwal sendiri; tanpa parameter = hari ini; maksimal 500 baris (`truncated`) |
 | `GET /api/my/schedules/:id` | Detail (dengan SOAP bila ada); milik orang lain = 404 |
-| `POST /api/my/schedules/:id/start` | Baru → Sedang dijalani (memulai ulang tidak mengubah apa pun) |
-| `POST /api/records` | `{schedule_id, soap:{s,o,a,p}}` menyelesaikan jadwal dan mencatat semua layanannya |
+| `POST /api/my/schedules/:id/start` | Baru → Sedang dijalani (`phase: soap`; hitung mundur baru berjalan setelah SOAP disimpan); memulai ulang tidak mengubah apa pun |
+| `POST /api/records` | `{schedule_id, soap:{s,o,a,p}}` menyimpan SOAP dan memulai hitung mundur (`count: 0`); layanan dicatat saat approve. Jadwal alur lama langsung Selesai dan mencatat semua layanannya |
 | `GET /api/my/notifications?limit` | Notifikasi terbaru dulu (bawaan 30, maksimal 100) dan jumlah belum dibaca |
 | `POST /api/my/notifications/read` | `{ids:[…]}` atau `{all:true}` |
 
@@ -207,7 +215,7 @@ Rincian ada di [SECURITY.md](SECURITY.md).
 
 ## Log audit
 
-Tabel `audit_log` mencatat aksi sensitif: `record.delete`, `review.approve`, `review.change`, `review.cancel`, `commission.update`, `account.create`, `account.update`, `service.update`, `customer.import`, `customer.create`, `customer.update`, `auth.password_change`, `schedule.create`, `schedule.update` (hanya nama kolom yang berubah), `schedule.cancel`, `schedule.start`, `schedule.complete`. Isi SOAP dan catatan jadwal tidak pernah dicatat. Setiap baris menyimpan waktu, pelaku, target, detail (JSON), dan IP.
+Tabel `audit_log` mencatat aksi sensitif: `record.delete`, `review.approve`, `review.change`, `review.cancel`, `commission.update`, `account.create`, `account.update`, `service.update`, `customer.import`, `customer.create`, `customer.update`, `auth.password_change`, `schedule.create`, `schedule.update` (hanya nama kolom yang berubah), `schedule.cancel`, `schedule.start`, `schedule.soap` (SOAP disimpan, hitung mundur mulai), `schedule.approve`, `schedule.complete` (alur lama). Isi SOAP dan catatan jadwal tidak pernah dicatat. Setiap baris menyimpan waktu, pelaku, target, detail (JSON), dan IP.
 
 Supervisor membacanya lewat `GET /api/sv/audit?page=&q=&action=` (admin dan user tidak punya akses).
 

@@ -33,7 +33,7 @@ function startServer(dir) {
   return new Promise((resolve, reject) => {
     const p = spawn(process.execPath, ['--no-warnings', 'server/index.js'], {
       cwd: root,
-      env: { ...process.env, PORT: '0', HOST: '127.0.0.1', DATA_DIR: dir, APP_TZ: TZ, ACCESS_HOURS: 'off', ADMIN_USERNAME: 'sv', ADMIN_PASSWORD: PASS, BOT_API_KEY: '' },
+      env: { ...process.env, PORT: '0', HOST: '127.0.0.1', DATA_DIR: dir, APP_TZ: TZ, ACCESS_HOURS: 'off', SESSION_TIMER: 'off', ADMIN_USERNAME: 'sv', ADMIN_PASSWORD: PASS, BOT_API_KEY: '' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';

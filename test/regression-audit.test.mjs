@@ -54,7 +54,7 @@ async function startServer(extraEnv = {}) {
   const env = {
     ...process.env, PORT: '0', HOST: '127.0.0.1', DATA_DIR: dataDir,
     ADMIN_USERNAME: ADMIN.username, ADMIN_PASSWORD: ADMIN.password, BOT_API_KEY: 'test-bot-key-0123456789',
-    COOKIE_SECURE: 'false', TRUST_PROXY: 'false', APP_TZ: 'Asia/Jakarta', ACCESS_HOURS: 'off', ...extraEnv, // jam akses dimatikan: tes tidak boleh bergantung pada jam dinding
+    COOKIE_SECURE: 'false', TRUST_PROXY: 'false', APP_TZ: 'Asia/Jakarta', ACCESS_HOURS: 'off', SESSION_TIMER: 'off', ...extraEnv, // jam akses dimatikan: tes tidak boleh bergantung pada jam dinding
   };
   delete env.NODE_TEST_CONTEXT; // supaya proses anak tidak ikut "mode runner tes"
   const child = spawn(process.execPath, ['--no-warnings', 'server/index.js'], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });

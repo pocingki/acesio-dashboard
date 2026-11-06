@@ -22,12 +22,13 @@ export function openAccountModal(user, onChange) { return openProfileModal(user,
 // tabs: { id, label } = menu langsung, atau { label, items: [{ id | onClick, label, desc, key, init }] } = menu dropdown.
 //   Item dengan `id` membuka tab itu; item dengan `onClick(setStatus)` menjalankan aksi (mis. panel Integrasi).
 //   `key` + `init(setStatus)` memberi item penanda status kecil (titik) yang juga tampil di tombol dropdown.
+// alias: { idHalaman: idMenu } untuk halaman yang dibuka dari tempat lain tanpa tombol menu sendiri.
 // onSelect(id, main, ctx): ctx = { signal, isCurrent(), params } baru untuk SETIAP pergantian tab;
 // ctx tab sebelumnya otomatis dibatalkan. params = parameter dari select(id, params), {} bila kosong. Tampilan async wajib memakai ctx.signal untuk fetch
 // dan mengecek ctx.isCurrent() sebelum menyentuh DOM.
 const STATUS_LABEL = { none: 'belum tersambung', paused: 'tersambung, belum dinyalakan', on: 'berjalan', problem: 'perlu perhatian' };
 
-export function createShell({ user, tabs, onSelect, onLogout, actions = [] }) {
+export function createShell({ user, tabs, onSelect, onLogout, actions = [], alias = {} }) {
   disposeActiveShell();
   const tabButtons = new Map(); // id tab -> tombol (di bar atau di dalam dropdown)
   const groupOf = new Map(); // id tab -> tombol grup dropdown induknya
@@ -127,7 +128,7 @@ export function createShell({ user, tabs, onSelect, onLogout, actions = [] }) {
   const userAvatar = avatar(user, 34);
   const userName = h('span', { class: 'userbtn__name' }, user.name);
   const userBtn = h('button', { class: 'userbtn', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': `Menu akun: ${user.name}, ${ROLE_LABEL[user.role]}` },
-    userAvatar, h('span', { class: 'userbtn__text' }, userName, h('span', { class: 'userbtn__role' }, ROLE_LABEL[user.role])), h('span', { class: 'userbtn__chev' }, icon('chevron', 16)));
+    userAvatar, h('span', { class: 'userbtn__text' }, userName), h('span', { class: 'userbtn__chev' }, icon('chevron', 16)));
   const menuAvatar = avatar(user, 44);
   const menuName = h('b', null, user.name);
   const refreshUser = () => { userName.textContent = user.name; menuName.textContent = user.name; paintAvatar(userAvatar, user); paintAvatar(menuAvatar, user); userBtn.setAttribute('aria-label', `Menu akun: ${user.name}, ${ROLE_LABEL[user.role]}`); };
@@ -163,12 +164,13 @@ export function createShell({ user, tabs, onSelect, onLogout, actions = [] }) {
     const mine = new AbortController();
     controller = mine;
     const ctx = { signal: mine.signal, params, isCurrent: () => controller === mine && !mine.signal.aborted };
+    const lit = alias[id] || id; // halaman tanpa tombol menu (mis. isi SOAP) menyorot menu induknya
     for (const [k, b] of tabButtons) {
-      if (k === id) b.setAttribute('aria-current', 'page');
+      if (k === lit) b.setAttribute('aria-current', 'page');
       else b.removeAttribute('aria-current');
     }
     for (const g of new Set(groupOf.values())) {
-      if (groupOf.get(id) === g) g.setAttribute('aria-current', 'page');
+      if (groupOf.get(lit) === g) g.setAttribute('aria-current', 'page');
       else g.removeAttribute('aria-current');
     }
     main.className = 'page';

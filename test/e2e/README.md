@@ -35,7 +35,7 @@ Buka http://localhost:3000 di Chrome dan satu browser lain. DevTools → Network
 ## A. Alur utama: Beranda, Jadwal Saya, SOAP
 
 1. Supervisor (tab **Jadwal**) membuat tiga jadwal hari ini untuk `<user-demo>`: 09:00 customer X dengan 2 layanan dan catatan, 10:00 customer Y dengan 1 layanan, 11:00 customer X lagi dengan 1 layanan; plus satu jadwal besok.
-2. Login `<user-demo>`. **Diharapkan:** tab awal **Beranda**; urutan tab *Beranda, Jadwal Saya, Input Customer, Riwayat Customer*; angka **2** (customer unik, jadwal besok tidak dihitung) dan lonceng dengan jumlah belum dibaca.
+2. Login `<user-demo>`. **Diharapkan:** tab awal **Beranda**; urutan menu *Beranda, Jadwal Saya, Riwayat Customer* (isi SOAP tidak punya menu; dibuka setelah approve tugas); angka **2** (customer unik, jadwal besok tidak dihitung) dan lonceng dengan jumlah belum dibaca.
 3. Ketuk angka. **Diharapkan:** Jadwal Saya hari ini dengan 3 baris; tiap baris memuat jam, customer, No RM, dan ringkasan layanan.
 4. Ketuk baris 09:00. **Diharapkan:** halaman **Input customer** terbuka; customer, layanan (2), dan catatan admin sudah tampil dan **tidak bisa diubah**; **tidak ada** kolom pencarian No RM maupun kotak layanan; **Simpan nonaktif**. Di tab Jadwal supervisor, jadwal itu kini **Sedang dijalani**.
 5. Isi satu bagian dengan 2 karakter lalu pindah kolom: pesan bahwa minimal 3 karakter. Isi keempat bagian (S, O, A, P) lalu **Simpan**. **Diharapkan:** toast "SOAP tersimpan", kembali ke Jadwal Saya, baris itu **Selesai**; Riwayat Customer menampilkan customer X dengan 2 layanan; Beranda menghitung 1 Selesai.

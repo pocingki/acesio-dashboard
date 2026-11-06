@@ -3,7 +3,7 @@ import { clientIp } from '../auth.js';
 import { add } from './index.js';
 import { parseId, readPeriod, cleanQ } from './history.js';
 import {
-  SCHEDULE_STATUSES, listSchedules, listWorkers, getSchedule, createSchedule, updateSchedule, cancelSchedule,
+  SCHEDULE_STATUSES, listSchedules, listWorkers, getSchedule, createSchedule, updateSchedule, cancelSchedule, approveSchedule,
 } from '../schedules.js';
 
 // Jadwal untuk staff (admin dan supervisor). Logika ada di server/schedules.js.
@@ -19,7 +19,7 @@ function readPage(query) {
 function readStatus(query) {
   if (blank(query.status)) return undefined;
   const s = String(query.status).trim();
-  if (!SCHEDULE_STATUSES.includes(s)) throw new HttpError(400, 'Status harus baru, berjalan, selesai, atau batal');
+  if (s !== 'menunggu' && !SCHEDULE_STATUSES.includes(s)) throw new HttpError(400, 'Status harus baru, berjalan, menunggu, selesai, atau batal');
   return s;
 }
 
@@ -47,4 +47,9 @@ add('PATCH', '/api/staff/schedules/:id', 'staff', ({ req, user, params, body }) 
 
 add('POST', '/api/staff/schedules/:id/cancel', 'staff', ({ req, user, params }) => (
   { schedule: cancelSchedule(parseId(params.id, 'ID jadwal'), user, clientIp(req)) }
+));
+
+// Admin dan supervisor menyatakan pekerjaan terapis selesai (setelah hitung mundur habis).
+add('POST', '/api/staff/schedules/:id/approve', 'staff', ({ req, user, params }) => (
+  { schedule: approveSchedule(parseId(params.id, 'ID jadwal'), user, clientIp(req)) }
 ));

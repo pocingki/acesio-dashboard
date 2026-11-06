@@ -73,3 +73,16 @@
   .sch-filters .field, .sch-filters .input { width: 100%; }
   .sch-svc-grid { grid-template-columns: 1fr; max-height: 220px; }
 }
+
+/* ---------- fase: hitung mundur dan approve ---------- */
+.sch-pill--menunggu { background: #ffe3c2; color: #8f3d00; }
+.sch-pending { margin: 0 0 10px; padding: 8px 12px; border-radius: 10px; background: #fff0dc; border: 1px solid #f0c98a; color: #7a3a00; font-weight: 700; font-size: 14px; }
+.sch-pending[hidden] { display: none; }
+.sch-timer { display: block; margin-top: 4px; }
+.sch-approve { margin: 12px 0; padding: 12px 14px; border-radius: 12px; background: #fff8e6; border: 1px solid #f3d99a; }
+.sch-approve p { margin: 0 0 10px; }
+
+/* Penghitung mundur (dipakai di staf dan user) */
+.cd { display: inline-flex; align-items: baseline; gap: 6px; font-size: 13px; color: var(--muted); }
+.cd__time { font-variant-numeric: tabular-nums; font-size: 1.15em; color: #8a5a00; letter-spacing: .02em; }
+.cd.is-done .cd__time { color: #8f3d00; }

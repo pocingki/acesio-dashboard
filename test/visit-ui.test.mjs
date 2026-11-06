@@ -68,7 +68,10 @@ test('jadwal yang tidak bisa diisi: tidak ada, batal, lampau, mendatang; selesai
   assert.match(visitBlockReason({ status: 'batal', day: today }, today), /dibatalkan/);
   assert.match(visitBlockReason({ status: 'baru', day: '2026-11-04' }, today), /terlewat/);
   assert.match(visitBlockReason({ status: 'berjalan', day: '2026-11-06' }, today), /bukan untuk hari ini/);
-  assert.equal(visitBlockReason({ status: 'baru', day: today }, today), null);
-  assert.equal(visitBlockReason({ status: 'berjalan', day: today }, today), null);
+  assert.match(visitBlockReason({ status: 'baru', day: today }, today), /Mulai/);
+  assert.match(visitBlockReason({ status: 'berjalan', phase: 'timer', day: today }, today), /hitung mundur sedang berjalan/);
+  assert.match(visitBlockReason({ status: 'berjalan', phase: 'menunggu', day: today }, today), /Menunggu approve/);
+  assert.equal(visitBlockReason({ status: 'berjalan', phase: 'soap', day: today }, today), null, 'Mulai lalu isi SOAP dulu');
+  assert.equal(visitBlockReason({ status: 'berjalan', phase: null, day: today }, today), null, 'jadwal lama tanpa alur baru tetap bisa diisi');
   assert.equal(visitBlockReason({ status: 'selesai', day: '2026-11-01' }, today), null);
 });

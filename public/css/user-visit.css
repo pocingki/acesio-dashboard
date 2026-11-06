@@ -39,3 +39,4 @@
   .visit-card, .visit-services, .visit__form, .visit__readonly { padding: 14px; }
   .visit__actions .btn { width: 100%; }
 }
+.visit__countdown { margin: 12px 0; text-align: center; } .visit__countdown .cd { font-size: 15px; } .visit__countdown .cd__time { font-size: 2em; }
