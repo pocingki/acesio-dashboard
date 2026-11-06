@@ -613,6 +613,7 @@ async function openCommissionEditor(u, allUsers, onSaved, ctx = NO_CTX) {
     inputs.set(it.service_id, input);
     return h('div', { class: 'comm-row' }, h('label', { for: `cm${it.service_id}`, title: it.name }, `${it.position}. ${it.name}`), input);
   }));
+  grid.style.setProperty('--rows', String(Math.ceil(items.length / 2)));
   const others = allUsers.filter((x) => x.id !== u.id);
   const src = h('select', { class: 'input select', id: 'copy-from' }, h('option', { value: '' }, 'Pilih user…'), others.map((x) => h('option', { value: x.id }, `${x.name} (${EMP_LABEL[x.employment]})`)));
   const apply = h('input', { type: 'checkbox', id: 'comm-hist' });
@@ -675,13 +676,34 @@ function accountsView(main, me, ctx) {
           h('td', null, ROLE_LABEL[a.role]),
           h('td', null, a.role === 'user' ? empPill(a.employment) : h('span', { class: 'muted' }, '–')),
           h('td', null, h('span', { class: `pill${a.active ? '' : ' pill--off'}` }, a.active ? 'Aktif' : 'Nonaktif')),
-          h('td', null, h('div', { class: 'row-actions' }, h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => openAccountEditor(a, load, me) }, 'Ubah'))))))), 'Tabel akun user'));
+          h('td', null, h('div', { class: 'row-actions' },
+            h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => openAccountEditor(a, load, me) }, 'Ubah'),
+            a.role !== 'supervisor' && a.id !== me.id
+              ? h('button', { class: 'btn btn--danger btn--sm', type: 'button', 'aria-label': `Hapus akun ${a.name}`, onclick: () => deleteAccount(a, load) }, 'Hapus')
+              : null)))))), 'Tabel akun user'));
     } catch (e) {
       if (!req.ok() || isAbort(e)) return;
       box.replaceChildren(emptyState('Akun belum bisa dimuat', e.message));
     }
   }
   load();
+}
+
+// Hapus akun admin/user (hanya supervisor). Pop-up konfirmasi wajib; data kerja akun ikut terhapus.
+async function deleteAccount(a, onDone) {
+  const extra = a.role === 'user' && (a.records_count || a.schedules_count)
+    ? ` Data kerjanya ikut terhapus permanen: ${a.records_count || 0} layanan/komisi dan ${a.schedules_count || 0} jadwal beserta SOAP.`
+    : '';
+  const ok = await confirmDialog(`Hapus akun ${a.name} (@${a.username}, ${ROLE_LABEL[a.role]}) secara permanen?${extra} Tindakan ini tidak bisa dibatalkan.`, { confirmText: 'Ya, hapus akun', danger: true });
+  if (!ok) return;
+  try {
+    await api(`/api/sv/accounts/${a.id}`, { method: 'DELETE' });
+    toast('Akun dihapus');
+  } catch (e) {
+    if (isAbort(e)) return;
+    toast(e.message, 'err');
+  }
+  onDone();
 }
 
 function openAccountEditor(account, onSaved, me) {

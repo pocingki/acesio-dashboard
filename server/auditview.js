@@ -170,6 +170,15 @@ function describe(row, d, L) {
           { label: 'Peran', value: ROLE[d.role] || d.role }, { label: 'Status kerja', value: EMP[d.employment] || d.employment },
         ],
       };
+    case 'account.delete':
+      return {
+        summary: `Menghapus akun ${d.name || d.username} (${ROLE[d.role] || d.role})`,
+        items: [
+          { label: 'Nama', value: d.name }, { label: 'Username', value: d.username },
+          { label: 'Peran', value: ROLE[d.role] || d.role },
+          { label: 'Data layanan ikut dihapus', value: num(d.records_deleted) }, { label: 'Jadwal ikut dihapus', value: num(d.schedules_deleted) },
+        ],
+      };
     case 'account.update': {
       const c = d.changes || {};
       const items = [{ label: 'Akun', value: `${L.user(row.target_id)}${d.username ? ` (${d.username})` : ''}` }];
@@ -239,6 +248,16 @@ function describe(row, d, L) {
         items: [
           { label: 'User', value: L.user(d.user_id) }, { label: 'Customer', value: L.customer(d.customer_id) },
           { label: 'Tanggal', value: dayText(d.day) }, { label: 'Status sebelumnya', value: SCHEDULE_STATUS[d.from] || d.from || '–' },
+        ],
+      };
+    case 'schedule.delete':
+      return {
+        summary: `Menghapus tugas ${L.user(d.user_id)} untuk ${L.customer(d.customer_id)} (${dayText(d.day)})`,
+        items: [
+          { label: 'Jadwal', value: `#${row.target_id}` }, { label: 'User', value: L.user(d.user_id) },
+          { label: 'Customer', value: L.customer(d.customer_id) }, { label: 'Tanggal', value: dayText(d.day) },
+          { label: 'Status sebelumnya', value: SCHEDULE_STATUS[d.from] || d.from || '–' },
+          { label: 'Data layanan ikut dihapus', value: num(d.records_deleted) },
         ],
       };
     case 'schedule.start':

@@ -13,6 +13,8 @@ export const ACTION_LABEL = {
   'commission.update': ['Ubah komisi', ''],
   'account.create': ['Buat akun', 'ok'],
   'account.update': ['Ubah akun', ''],
+  'account.delete': ['Hapus akun', 'late'],
+  'schedule.delete': ['Hapus tugas', 'late'],
   'service.update': ['Ubah layanan', ''],
   'customer.import': ['Impor customer', ''],
   'customer.create': ['Tambah customer', 'ok'],

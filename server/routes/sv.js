@@ -112,7 +112,10 @@ add('PUT', '/api/sv/commissions/:userId', 'sv', ({ req, user, params, body }) =>
 
 // ----- akun -----
 add('GET', '/api/sv/accounts', 'sv', () => ({
-  accounts: db.prepare('SELECT id, username, name, role, employment, active, created_at FROM users ORDER BY CASE role WHEN \'supervisor\' THEN 0 WHEN \'admin\' THEN 1 ELSE 2 END, name COLLATE NOCASE').all(),
+  accounts: db.prepare(`SELECT u.id, u.username, u.name, u.role, u.employment, u.active, u.created_at,
+      (SELECT COUNT(*) FROM records r WHERE r.user_id = u.id) AS records_count,
+      (SELECT COUNT(*) FROM schedules s WHERE s.user_id = u.id) AS schedules_count
+    FROM users u ORDER BY CASE u.role WHEN 'supervisor' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, u.name COLLATE NOCASE`).all(),
 }));
 
 add('POST', '/api/sv/accounts', 'sv', async ({ req, user, body }) => {
@@ -182,6 +185,59 @@ add('PATCH', '/api/sv/accounts/:id', 'sv', async ({ req, params, body, user }) =
   // Sesi dicabut setelah commit: password diganti, dinonaktifkan, atau peran berubah.
   if (revoke) destroyUserSessions(id);
   return { ok: true };
+});
+
+// ----- hapus akun (admin dan user; supervisor tidak bisa dihapus lewat jalur ini) -----
+// Data kerja milik akun yang dihapus (layanan/komisi, jadwal beserta SOAP, approve harian) ikut dihapus.
+// Jejak buatan akun itu pada data orang lain (pembuat jadwal, yang meng-approve) dialihkan ke supervisor
+// yang menghapus, supaya riwayat user lain tetap utuh. Semua dalam satu transaksi bersama catatan audit.
+add('DELETE', '/api/sv/accounts/:id', 'sv', ({ req, user, params }) => {
+  const id = idParam(params.id);
+  let photo = null;
+  const result = tx(() => {
+    const u = db.prepare('SELECT id, username, name, role, employment, photo FROM users WHERE id = ?').get(id);
+    if (!u) throw new HttpError(404, 'Akun tidak ditemukan');
+    if (u.id === user.id) throw new HttpError(400, 'Anda tidak bisa menghapus akun sendiri');
+    if (u.role === 'supervisor') throw new HttpError(400, 'Akun supervisor tidak bisa dihapus. Ubah dulu jenis akunnya jika memang perlu dihapus.');
+
+    const records = Number(db.prepare('DELETE FROM records WHERE user_id = ?').run(u.id).changes);
+    const schedules = Number(db.prepare('DELETE FROM schedules WHERE user_id = ?').run(u.id).changes); // layanan jadwal & notifikasi ikut (CASCADE)
+    db.prepare('UPDATE schedules SET created_by = ? WHERE created_by = ?').run(user.id, u.id);
+    db.prepare('UPDATE schedules SET approved_by = ? WHERE approved_by = ?').run(user.id, u.id);
+    db.prepare('UPDATE day_reviews SET reviewed_by = ? WHERE reviewed_by = ?').run(user.id, u.id);
+    db.prepare('DELETE FROM idempotency_keys WHERE user_id = ?').run(u.id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(u.id); // sesi, komisi, approve harian, notifikasi ikut (CASCADE)
+    audit(req, user, 'account.delete', 'user', u.id, {
+      username: u.username, name: u.name, role: u.role, employment: u.employment,
+      records_deleted: records, schedules_deleted: schedules,
+    });
+    photo = u.photo;
+    return { ok: true, records_deleted: records, schedules_deleted: schedules };
+  });
+  removeUpload(photo);
+  return result;
+});
+
+// ----- hapus tugas (jadwal) yang sudah dijalani user -----
+// Hanya jadwal berstatus Sedang dijalani atau Selesai. Layanan/komisi yang tercatat dari jadwal itu
+// (records dengan batch yang sama) ikut dihapus supaya komisi tidak tertinggal. Isi SOAP tidak masuk audit.
+add('DELETE', '/api/sv/schedules/:id', 'sv', ({ req, user, params }) => {
+  const id = idParam(params.id);
+  return tx(() => {
+    const s = db.prepare('SELECT id, user_id, customer_id, day, status, batch FROM schedules WHERE id = ?').get(id);
+    if (!s) throw new HttpError(404, 'Jadwal tidak ditemukan');
+    if (s.status !== 'berjalan' && s.status !== 'selesai') {
+      throw new HttpError(409, 'Hanya tugas yang sudah dijalani user (Sedang dijalani atau Selesai) yang bisa dihapus', 'SCHEDULE_STATE');
+    }
+    const records = s.batch
+      ? Number(db.prepare('DELETE FROM records WHERE batch = ? AND user_id = ?').run(s.batch, s.user_id).changes)
+      : 0;
+    db.prepare('DELETE FROM schedules WHERE id = ?').run(s.id); // layanan jadwal & notifikasi ikut (CASCADE)
+    audit(req, user, 'schedule.delete', 'schedule', s.id, {
+      user_id: s.user_id, customer_id: s.customer_id, day: s.day, from: s.status, records_deleted: records,
+    });
+    return { ok: true, records_deleted: records };
+  });
 });
 
 // ----- batalkan approve harian -----

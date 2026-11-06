@@ -53,6 +53,8 @@ Admin dan supervisor (staf) **membuat dan mengelola jadwal**; user **menjalankan
 | Approve data user + isi tepat waktu/terlambat | – | ya (sekali) | ya (bisa ubah/batalkan) |
 | Hapus data input | miliknya, **hanya hari ini** dan belum di-approve | – | semua (tercatat di log audit) |
 | Edit komisi per user, nama/foto layanan, kelola akun, lihat log audit | – | – | ya |
+| Hapus akun admin/user (data kerja user ikut terhapus; pop-up konfirmasi) | – | – | ya (tidak bisa hapus diri sendiri atau supervisor) |
+| Hapus tugas yang sudah dijalani user (Sedang dijalani/Selesai; layanan & komisi dari tugas itu ikut terhapus; pop-up konfirmasi) | – | – | ya |
 
 ## Cara pakai
 

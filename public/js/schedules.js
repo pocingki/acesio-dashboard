@@ -33,6 +33,8 @@ function quickRange(kind, today) {
 }
 const QUICK = [['today', 'Hari ini'], ['tomorrow', 'Besok'], ['next7', '7 hari ke depan'], ['all', 'Semua']];
 
+// Hanya supervisor, hanya tugas yang sudah dijalani user (Sedang dijalani atau Selesai).
+const canDelete = (s, user) => user.role === 'supervisor' && (s.status === 'berjalan' || s.status === 'selesai');
 const canCancel = (s, user) => s.status === 'baru' || (user.role === 'supervisor' && s.status === 'berjalan');
 
 // Menonaktifkan tombol selama permintaan berjalan (cegah klik ganda).
@@ -165,6 +167,11 @@ export function scheduleView(main, user, ctx = NO_CTX) {
         cancelBtn.addEventListener('click', () => cancelSchedule(s, actions));
         actions.push(cancelBtn);
       }
+      if (canDelete(s, user)) {
+        const delBtn = h('button', { class: 'btn btn--danger btn--sm', type: 'button' }, 'Hapus');
+        delBtn.addEventListener('click', () => deleteSchedule(s, actions));
+        actions.push(delBtn);
+      }
       return h('tr', { class: s.status === 'batal' ? 'sch-row is-cancelled' : 'sch-row' },
         h('td', { 'data-label': 'Waktu', class: 'nowrap' }, h('b', null, fmtTimeRange(s.start_time, s.end_time)), h('small', null, fmtDay(s.day))),
         h('td', { 'data-label': 'Terapis' }, s.user?.name || '–'),
@@ -180,6 +187,22 @@ export function scheduleView(main, user, ctx = NO_CTX) {
     return tableWrap(h('table', { class: 'sch-table' },
       h('thead', null, h('tr', null, ['Waktu', 'Terapis', 'Customer', 'Layanan', 'Catatan', 'Status'].map((t) => h('th', null, t)), h('th', null, h('span', { class: 'sr-only' }, 'Aksi')))),
       body), 'Tabel jadwal', 'table-wrap--sch');
+  }
+
+  async function deleteSchedule(s, siblings) {
+    const label = `${s.customer?.name || 'customer'} oleh ${s.user?.name || 'user'} pada ${fmtDay(s.day)} ${fmtTimeRange(s.start_time, s.end_time)}`;
+    const ok = await confirmDialog(`Setuju menghapus tugas ${label}? Jadwal, SOAP, serta layanan dan komisi yang tercatat dari tugas ini ikut terhapus permanen. Tindakan ini tidak bisa dibatalkan.`, { confirmText: 'Ya, hapus tugas', danger: true });
+    if (!ok) return;
+    await busy(siblings, async () => {
+      try {
+        await api(`/api/sv/schedules/${s.id}`, { method: 'DELETE' });
+        toast('Tugas dihapus');
+      } catch (e) {
+        if (isAbort(e)) return;
+        toast(e.message, 'err');
+      }
+      if (ctx.isCurrent()) load();
+    });
   }
 
   async function cancelSchedule(s, siblings) {
