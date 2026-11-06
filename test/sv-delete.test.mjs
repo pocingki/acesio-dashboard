@@ -4,16 +4,18 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'acesio-svdel-'));
 process.env.DATA_DIR = DATA;
 process.env.NODE_ENV = 'test';
 
-const { db } = await import('../server/db.js');
+const { db, SERVICE_COUNT } = await import('../server/db.js');
 const { hashPassword } = await import('../server/auth.js');
 const { ymd } = await import('../server/clock.js');
 const { routes } = await import('../server/routes/index.js');
 await import('../server/routes/sv.js');
+await import('../server/routes/history.js');
 
 after(() => {
   try { db.close(); } catch { /* sudah tertutup */ }
@@ -146,4 +148,79 @@ test('hapus tugas sedang dijalani diizinkan; baru dan batal ditolak 409', async 
     assert.equal(count('SELECT COUNT(*) AS n FROM schedules WHERE id = ?', id), 1);
   }
   assert.equal((await call('DELETE', '/api/sv/schedules/987654', { user: SV })).status, 404);
+});
+
+// ---------- tambah / hapus layanan ----------
+const posList = () => db.prepare('SELECT position FROM services WHERE active = 1 ORDER BY position').all().map((r) => r.position);
+
+test('layanan awal 29 dan tambah layanan memberi nomor berikutnya', async () => {
+  assert.equal(SERVICE_COUNT, 29);
+  assert.equal(posList().length, 29);
+  const r = await call('POST', '/api/sv/services', { user: SV, body: { name: 'Layanan Baru' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.service.position, 30);
+  assert.equal(posList().length, 30);
+  assert.equal((await call('POST', '/api/sv/services', { user: SV, body: { name: ' ' } })).status, 400);
+  assert.equal(audit('service.create').at(-1).target_id, String(r.body.service.id));
+});
+
+test('hapus layanan yang belum pernah dipakai: dihapus bersih, nomor dirapatkan', async () => {
+  const add = (await call('POST', '/api/sv/services', { user: SV, body: { name: 'Sementara' } })).body.service;
+  const first = db.prepare('SELECT id FROM services WHERE position = 1').get().id;
+  db.prepare('INSERT INTO user_commissions (user_id, service_id, amount) VALUES (?, ?, 1000)').run(svId, add.id);
+  const r = await call('DELETE', `/api/sv/services/${add.id}`, { user: SV });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.mode, 'deleted');
+  assert.equal(count('SELECT COUNT(*) AS n FROM services WHERE id = ?', add.id), 0);
+  assert.equal(count('SELECT COUNT(*) AS n FROM user_commissions WHERE service_id = ?', add.id), 0);
+  assert.equal(db.prepare('SELECT id FROM services WHERE position = 1').get().id, first);
+  assert.deepEqual(posList(), Array.from({ length: posList().length }, (_, i) => i + 1));
+});
+
+test('hapus layanan yang punya riwayat: dinonaktifkan, riwayat utuh, nomor dirapatkan, tidak muncul lagi', async () => {
+  const uid = mkUser('terapis7', 'user');
+  const target = db.prepare('SELECT id FROM services WHERE position = 3').get().id;
+  const after4 = db.prepare('SELECT id FROM services WHERE position = 4').get().id;
+  db.prepare("INSERT INTO records (user_id, customer_id, service_id, commission, source, created_at, day, note, batch) VALUES (?, ?, ?, 7000, 'web', ?, ?, '', 'b-svc')")
+    .run(uid, cust, target, new Date().toISOString(), ymd());
+  db.prepare('INSERT INTO user_commissions (user_id, service_id, amount) VALUES (?, ?, 7000)').run(uid, target);
+  const before = posList().length;
+
+  const r = await call('DELETE', `/api/sv/services/${target}`, { user: SV });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.mode, 'archived');
+  assert.equal(count('SELECT COUNT(*) AS n FROM records WHERE service_id = ?', target), 1, 'riwayat utuh');
+  assert.equal(db.prepare('SELECT active FROM services WHERE id = ?').get(target).active, 0);
+  assert.equal(posList().length, before - 1);
+  assert.equal(db.prepare('SELECT position FROM services WHERE id = ?').get(after4).position, 3, 'nomor bergeser naik');
+  const list = (await call('GET', '/api/services', { user: SV })).body.services;
+  assert.ok(!list.some((x) => x.id === target));
+  const comm = (await call('GET', `/api/sv/commissions/${uid}`, { user: SV })).body.items;
+  assert.ok(!comm.some((x) => x.service_id === target));
+  // tidak bisa dipakai untuk jadwal baru atau diubah/dihapus lagi
+  assert.equal((await call('DELETE', `/api/sv/services/${target}`, { user: SV })).status, 404);
+  assert.equal((await call('PATCH', `/api/sv/services/${target}`, { user: SV, body: { name: 'Hantu' } })).status, 404);
+});
+
+test('hapus layanan ditolak bila dipakai jadwal yang belum selesai', async () => {
+  const uid = mkUser('terapis8', 'user');
+  const sid = mkSchedule(uid, 'baru'); // memakai layanan id 1
+  const r = await call('DELETE', '/api/sv/services/1', { user: SV });
+  assert.equal(r.status, 409);
+  assert.equal(db.prepare('SELECT active FROM services WHERE id = 1').get().active, 1);
+  db.prepare("UPDATE schedules SET status = 'batal' WHERE status IN ('baru','berjalan')").run(); // termasuk jadwal sisa tes lain
+  assert.ok(sid);
+  assert.equal((await call('DELETE', '/api/sv/services/1', { user: SV })).status, 200);
+});
+
+test('layanan terakhir tidak bisa dihapus; seed awal tidak mengisi ulang setelah restart', async () => {
+  const ids = db.prepare('SELECT id FROM services WHERE active = 1').all().map((r) => r.id);
+  for (const id of ids.slice(1)) assert.equal((await call('DELETE', `/api/sv/services/${id}`, { user: SV })).status, 200);
+  assert.equal((await call('DELETE', `/api/sv/services/${ids[0]}`, { user: SV })).status, 400);
+  assert.equal(posList().length, 1);
+  // Server dimulai ulang: layanan yang sudah dihapus tidak boleh muncul lagi.
+  const r = spawnSync(process.execPath, ['--no-warnings', '--input-type=module', '-e',
+    "const { db } = await import(process.env.DB_URL); console.log(db.prepare('SELECT COUNT(*) AS n FROM services WHERE active = 1').get().n);"],
+  { env: { ...process.env, DB_URL: new URL('../server/db.js', import.meta.url).href }, encoding: 'utf8' });
+  assert.equal(r.stdout.trim(), '1', r.stderr);
 });

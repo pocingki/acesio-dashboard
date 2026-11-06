@@ -13,7 +13,7 @@ import {
 
 const isAbort = (e) => e?.name === 'AbortError';
 const NOTE_MAX = 500;
-const MAX_SERVICES = 29;
+const MAX_SERVICES = 100; // batas atas teknis; jumlah layanan sebenarnya diatur supervisor dan divalidasi server
 const RANGE_MSG = 'Tanggal awal tidak boleh setelah tanggal akhir'; // sama dengan rangeError di staff.js
 const dash = (v) => (v ? v : h('span', { class: 'muted' }, '–'));
 
@@ -412,7 +412,7 @@ function openForm({ schedule, workers, ctx = NO_CTX, onSaved }) {
   const svcCount = h('p', { class: 'hint', role: 'status' });
   const svcRows = []; // { id, name, el }
   const paintSelected = () => {
-    svcCount.textContent = `${fmtNum(selected.size)} layanan dipilih (maksimal ${MAX_SERVICES})`;
+    svcCount.textContent = `${fmtNum(selected.size)} layanan dipilih${svcRows.length ? ` dari ${fmtNum(svcRows.length)}` : ''}`;
     svcChips.replaceChildren(...[...selected].map(([id, name]) => h('span', { class: 'sch-chip' }, name,
       h('button', { class: 'sch-chip__x', type: 'button', 'aria-label': `Hapus ${name}`, onclick: () => toggle(id, false) }, icon('close', 12)))));
     for (const r of svcRows) r.input.checked = selected.has(r.id);

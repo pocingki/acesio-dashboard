@@ -207,7 +207,9 @@ if (db.prepare('PRAGMA user_version').get().user_version < SCHEMA_VERSION) {
 }
 
 // Profil akun: data diri dan foto. Hanya menambah kolom yang belum ada (aman dijalankan berulang).
-for (const [col, ddl] of [['phone', "TEXT NOT NULL DEFAULT ''"], ['email', "TEXT NOT NULL DEFAULT ''"], ['birth_date', "TEXT NOT NULL DEFAULT ''"], ['address', "TEXT NOT NULL DEFAULT ''"], ['photo', 'TEXT']]) {
+for (const [col, ddl] of [['phone', "TEXT NOT NULL DEFAULT ''"], ['email', "TEXT NOT NULL DEFAULT ''"], ['birth_date', "TEXT NOT NULL DEFAULT ''"], ['address', "TEXT NOT NULL DEFAULT ''"], ['photo', 'TEXT'],
+  // Jabatan dan tanggal bergabung: HANYA supervisor yang mengisi/mengubah (lewat Akun User); pemilik akun hanya melihat.
+  ['job_title', "TEXT NOT NULL DEFAULT ''"], ['join_date', "TEXT NOT NULL DEFAULT ''"]]) {
   if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = ?").get(col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} ${ddl}`);
 }
 
@@ -290,9 +292,19 @@ for (const [col, ddl] of [['flow', 'INTEGER NOT NULL DEFAULT 0'], ['due_at', "TE
   if (!db.prepare("SELECT 1 FROM pragma_table_info('schedules') WHERE name = ?").get(col)) db.exec(`ALTER TABLE schedules ADD COLUMN ${col} ${ddl}`);
 }
 
-// 29 kotak layanan tetap; supervisor mengubah nama dan fotonya.
+// Layanan: database baru diisi 29 kotak awal (SERVICE_COUNT). Setelah itu supervisor bebas menambah, mengubah,
+// dan menghapus; jumlah tidak dikunci lagi, jadi isi awal HANYA dibuat saat tabel masih kosong (kalau tidak,
+// layanan yang sudah dihapus akan muncul lagi setiap server dimulai ulang).
+// active = 0: layanan dihapus tetapi masih dipakai riwayat (data layanan/jadwal lama), jadi barisnya disimpan
+// supaya laporan lama tetap utuh; layanan itu tidak muncul lagi untuk jadwal baru.
+// position: nomor urut tampilan 1..n untuk layanan aktif; layanan nonaktif memakai -id.
 export const SERVICE_COUNT = 29;
-if (db.prepare('SELECT COUNT(*) AS n FROM services').get().n < SERVICE_COUNT) {
+export const SERVICE_MAX = 100;
+if (!db.prepare("SELECT 1 FROM pragma_table_info('services') WHERE name = 'active'").get()) {
+  db.exec('ALTER TABLE services ADD COLUMN active INTEGER NOT NULL DEFAULT 1');
+}
+export const activeServiceCount = () => db.prepare('SELECT COUNT(*) AS n FROM services WHERE active = 1').get().n;
+if (db.prepare('SELECT COUNT(*) AS n FROM services').get().n === 0) {
   const ins = db.prepare('INSERT OR IGNORE INTO services (position, name) VALUES (?, ?)');
   for (let i = 1; i <= SERVICE_COUNT; i++) ins.run(i, `Layanan ${i}`);
 }

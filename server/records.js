@@ -26,7 +26,7 @@ export function createRecords({ userId, customer, serviceIds, source, note, batc
       throw new HttpError(409, 'Data hari ini sudah di-approve dan dikunci. Hubungi supervisor jika perlu menambah.');
     }
     const price = db.prepare('SELECT amount FROM user_commissions WHERE user_id = ? AND service_id = ?');
-    const svc = db.prepare('SELECT id FROM services WHERE id = ?');
+    const svc = db.prepare('SELECT id FROM services WHERE id = ? AND active = 1');
     const ins = db.prepare('INSERT INTO records (user_id, customer_id, service_id, commission, source, created_at, day, note, batch) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const when = nowIso();
     const batch = givenBatch || crypto.randomUUID();

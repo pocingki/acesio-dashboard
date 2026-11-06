@@ -64,7 +64,7 @@ function usageRows(period) {
   return db.prepare(`
     SELECT s.id, s.position, s.name, COUNT(r.id) AS uses
     FROM services s LEFT JOIN records r ON r.service_id = s.id ${where.length ? 'AND ' + where.join(' AND ') : ''}
-    GROUP BY s.id ORDER BY uses DESC, s.position`).all(...args);
+    GROUP BY s.id HAVING s.active = 1 OR uses > 0 ORDER BY uses DESC, s.position`).all(...args);
 }
 add('GET', '/api/staff/usage', 'staff', ({ query }) => ({ usage: usageRows(readPeriod(query)) }));
 

@@ -59,8 +59,8 @@ Admin dan supervisor (staf) **membuat dan mengelola jadwal**; user **menjalankan
 ## Cara pakai
 
 **Supervisor**
-1. **Akun User**: tambah akun (User / Admin / Supervisor; untuk User pilih Karyawan tetap atau Part time).
-2. **Pengaturan Layanan**: tab *Kotak layanan* (nama dan foto 29 kotak) dan *Perbedaan komisi* (komisi per layanan per user; yang belum diisi dihitung Rp0; ada tombol "Salin dari user lain").
+1. **Akun User**: tambah akun (User / Admin / Supervisor; untuk User pilih Karyawan tetap atau Part time). Isi juga **Jabatan** (maks 60 karakter) dan **Tanggal bergabung** (opsional). Dua data ini **hanya bisa diubah supervisor**; pemilik akun hanya melihatnya di Profil (hanya-baca), dan server mengabaikan upaya mengubahnya lewat profil.
+2. **Pengaturan Layanan**: tab *Kotak layanan* (nama dan foto 29 kotak) dan *Perbedaan komisi* (komisi per layanan per user; yang belum diisi dihitung Rp0; ada tombol "Salin dari user lain"). Tombol **Impor komisi** mengisi komisi semua terapis sekaligus dari CSV/Excel: satu baris per layanan, satu kolom per terapis (judul kolom `Nama (@username)`). Unduh *Template* (sudah berisi layanan, terapis aktif, dan komisi saat ini), ubah angkanya, lalu unggah. Sel kosong tidak mengubah komisi lama, `0` mengosongkan, angka boleh `25000` / `25.000` / `Rp25.000`; baris atau sel bermasalah dilewati dan dilaporkan. Ada pilihan menerapkan ke data yang sudah tercatat. Tiap impor masuk Log audit (ringkasan + satu catatan per terapis).
 3. **Laporan**: total komisi, customer, pelayanan, hari terlambat, grafik donat, laporan terlambat harian, data user, pemakaian layanan.
 4. **Log audit**: siapa menghapus data, mengubah komisi, meng-approve, membuat akun, dan seterusnya (lihat bagian Log audit).
 
@@ -72,7 +72,7 @@ Admin dan supervisor (staf) **membuat dan mengelola jadwal**; user **menjalankan
 - **Upload data**: CSV atau Excel (.xlsx) dengan baris judul yang sama (template tersedia di jendela upload). *No RM* dan *Nama* wajib. No RM yang sudah ada diperbarui (sel kosong tidak menghapus data lama), yang belum ada ditambahkan. Baris bermasalah dilaporkan setelah upload.
 - **Referensi otomatis jadi nama platform**: isi `fb` → *Facebook*, `ig` / `IG01` → *Instagram*, `tt` / `tiktok` → *TikTok*, `google ads` → *Google Ads*, dst. Berlaku di form Tambah/Ubah (terisi lengkap saat kolom ditinggalkan, ada daftar saran) dan di upload CSV/Excel. Aturan dan nama platform dibaca dari `config/keywords.json`, berkas yang sama dengan bot WA, jadi nama di dashboard dan bot selalu seragam. Hanya jika **seluruh isian** adalah satu platform (boleh diawali "dari"/"via"); isian lain seperti *Teman* atau *IG kak Rina* disimpan apa adanya. Kolom kosong tetap kosong. Merapikan data lama: `npm run normalize:references` (tampilkan rencana) lalu `-- --apply`.
 - **Tambah customer**: untuk customer yang datang **setelah** data awal diunggah (user tidak membuat customer). Data yang masuk lewat **Upload** otomatis bernilai *Data awal*; yang dibuat lewat **Tambah customer** otomatis *Customer baru*, tanpa pilihan manual. Donat **New customer** di Laporan menampilkan jumlah customer baru pada periode terpilih (default hari ini) di tengahnya dan menyegarkan diri tiap 30 detik.
-- **Profil akun**: klik nama di pojok kanan atas (semua peran) untuk mengisi data diri (nama, No HP, email, tanggal lahir, alamat), mengunggah foto, dan mengganti password.
+- **Profil akun**: klik nama di pojok kanan atas (semua peran) untuk mengisi data diri (nama, No HP, email, tanggal lahir, alamat), mengunggah foto, dan mengganti password. Di dalamnya juga tampil **Jabatan** dan **Tanggal bergabung** (hanya-baca; diatur supervisor di Akun User).
 - **Ubah**, **Tarik data** (CSV/Excel), dan **Riwayat** per customer.
 - Ekspor CSV menetralkan sel yang bisa dibaca Excel sebagai formula (anti formula injection). Hasil ekspor yang diimpor kembali tidak boleh mengubah data: nama seperti `-Andi` harus tetap `-Andi` (diuji di regresi #8).
 

@@ -58,7 +58,7 @@ export function phonePatterns(q) {
 
 // ---------- layanan & pencarian customer ----------
 add('GET', '/api/services', 'user', () => ({
-  services: db.prepare('SELECT id, position, name, photo FROM services ORDER BY position').all(),
+  services: db.prepare('SELECT id, position, name, photo FROM services WHERE active = 1 ORDER BY position').all(),
 }));
 
 // Pencarian customer untuk input layanan: hanya lewat No RM, dan hanya mengembalikan No RM + nama.

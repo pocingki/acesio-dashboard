@@ -47,7 +47,8 @@ add('POST', '/api/auth/password', 'user', async ({ req, user, body }) => {
 });
 
 // ---------- profil akun (semua peran, hanya akun sendiri) ----------
-const PROFILE_COLS = 'id, username, name, role, employment, phone, email, birth_date, address, photo, created_at';
+const PROFILE_COLS = 'id, username, name, role, employment, phone, email, birth_date, address, photo, created_at, job_title, join_date';
+// job_title dan join_date HANYA dibaca di sini. PATCH profil tidak pernah menyentuhnya; hanya supervisor (PATCH /api/sv/accounts/:id).
 const readProfile = (id) => db.prepare(`SELECT ${PROFILE_COLS} FROM users WHERE id = ?`).get(id);
 
 add('GET', '/api/auth/profile', 'user', ({ user }) => ({ profile: readProfile(user.id) }));

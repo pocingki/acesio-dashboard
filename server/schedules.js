@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { db, tx, SERVICE_COUNT } from './db.js';
+import { db, tx, activeServiceCount } from './db.js';
 import { HttpError, isYmd, likePattern } from './util.js';
 import { ymd, now } from './clock.js';
 import { logAudit } from './audit.js';
@@ -51,13 +51,14 @@ function readNote(v) {
 }
 
 function readServiceIds(v) {
-  const bad = () => new HttpError(400, `Pilih 1–${SERVICE_COUNT} layanan yang berbeda dan valid`);
-  if (!Array.isArray(v) || v.length === 0 || v.length > SERVICE_COUNT) throw bad();
+  const max = activeServiceCount();
+  const bad = () => new HttpError(400, `Pilih 1–${max} layanan yang berbeda dan valid`);
+  if (!Array.isArray(v) || v.length === 0 || v.length > max) throw bad();
   // Hanya angka atau teks angka; true/null/'' dan duplikat ditolak.
   if (!v.every((x) => (typeof x === 'number' && Number.isInteger(x)) || (typeof x === 'string' && /^\d{1,15}$/.test(x.trim())))) throw bad();
-  const list = ints(v, SERVICE_COUNT);
+  const list = ints(v, max);
   if (!list || list.length !== v.length) throw bad();
-  const found = db.prepare(`SELECT COUNT(*) AS n FROM services WHERE id IN (${list.map(() => '?').join(',')})`).get(...list).n;
+  const found = db.prepare(`SELECT COUNT(*) AS n FROM services WHERE active = 1 AND id IN (${list.map(() => '?').join(',')})`).get(...list).n;
   if (found !== list.length) throw bad();
   return list;
 }

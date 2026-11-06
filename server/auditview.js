@@ -21,7 +21,7 @@ const SOAP_PART_LABEL = { s: 'Subjective', o: 'Objective', a: 'Assessment', p: '
 const SCHEDULE_STATUS = { baru: 'Baru', berjalan: 'Sedang dijalani', selesai: 'Selesai', batal: 'Dibatalkan' };
 const KEY_LABEL = {
   user_id: 'Pengguna', customer_id: 'Customer', service_id: 'Layanan', commission: 'Komisi', day: 'Tanggal', late: 'Terlambat',
-  username: 'Username', name: 'Nama', role: 'Peran', employment: 'Status kerja', active: 'Aktif', position: 'Posisi', added: 'Ditambahkan',
+  username: 'Username', name: 'Nama', role: 'Peran', employment: 'Status kerja', job_title: 'Jabatan', join_date: 'Tanggal bergabung', active: 'Aktif', position: 'Posisi', added: 'Ditambahkan',
   updated: 'Diperbarui', skipped: 'Dilewati', rm_no: 'No RM', origin: 'Asal data', fields: 'Kolom diubah', reviewed_by: 'Di-approve oleh',
   reviewed_at: 'Waktu approve',
 };
@@ -162,12 +162,32 @@ function describe(row, d, L) {
         ],
       };
     }
+    case 'commission.import':
+      return {
+        summary: `Impor komisi: ${num(d.users)} terapis, ${num(d.changed)} komisi diubah, ${num(d.unchanged)} tidak berubah, ${num(d.skipped)} dilewati`,
+        items: [
+          { label: 'Terapis diproses', value: num(d.users) }, { label: 'Komisi diubah', value: num(d.changed) },
+          { label: 'Tidak berubah', value: num(d.unchanged) }, { label: 'Dilewati', value: num(d.skipped) },
+          { label: 'Berlaku ke riwayat lama', value: d.apply_to_history ? `Ya, ${num(d.history_rows_changed)} data diperbarui` : 'Tidak, hanya untuk data baru' },
+        ],
+      };
     case 'account.create':
       return {
         summary: `Membuat akun ${d.name || d.username} (${ROLE[d.role] || d.role}, ${EMP[d.employment] || d.employment})`,
         items: [
           { label: 'Nama', value: d.name }, { label: 'Username', value: d.username },
           { label: 'Peran', value: ROLE[d.role] || d.role }, { label: 'Status kerja', value: EMP[d.employment] || d.employment },
+          ...(d.job_title ? [{ label: 'Jabatan', value: d.job_title }] : []),
+          ...(d.join_date ? [{ label: 'Tanggal bergabung', value: dayText(d.join_date) }] : []),
+        ],
+      };
+    case 'account.delete':
+      return {
+        summary: `Menghapus akun ${d.name || d.username} (${ROLE[d.role] || d.role})`,
+        items: [
+          { label: 'Nama', value: d.name }, { label: 'Username', value: d.username },
+          { label: 'Peran', value: ROLE[d.role] || d.role },
+          { label: 'Data layanan ikut dihapus', value: num(d.records_deleted) }, { label: 'Jadwal ikut dihapus', value: num(d.schedules_deleted) },
         ],
       };
     case 'account.delete':
@@ -187,6 +207,8 @@ function describe(row, d, L) {
       if (c.active) { items.push(fieldChange('Status akun', c.active.from, c.active.to, (x) => (x ? 'Aktif' : 'Nonaktif'))); parts.push(c.active.to ? 'diaktifkan' : 'dinonaktifkan'); }
       if (c.role) { items.push(fieldChange('Peran', c.role.from, c.role.to, (x) => ROLE[x] || x)); parts.push('peran'); }
       if (c.employment) { items.push(fieldChange('Status kerja', c.employment.from, c.employment.to, (x) => EMP[x] || x)); parts.push('status kerja'); }
+      if (c.job_title) { items.push(fieldChange('Jabatan', c.job_title.from || '–', c.job_title.to || '–')); parts.push('jabatan'); }
+      if (c.join_date) { items.push(fieldChange('Tanggal bergabung', c.join_date.from ? dayText(c.join_date.from) : '–', c.join_date.to ? dayText(c.join_date.to) : '–')); parts.push('tanggal bergabung'); }
       if (c.password_changed) { items.push({ label: 'Password', value: 'Diganti oleh supervisor' }); parts.push('password'); }
       return { summary: `Mengubah akun ${L.user(row.target_id)}${parts.length ? `: ${parts.join(', ')}` : ''}`, items };
     }
@@ -201,6 +223,19 @@ function describe(row, d, L) {
       }
       return { summary: `Mengubah layanan posisi ${d.position ?? '–'}${parts.length ? `: ${parts.join(', ')}` : ''}`, items };
     }
+    case 'service.create':
+      return {
+        summary: `Menambah layanan “${d.name}” (nomor ${d.position ?? '–'})`,
+        items: [{ label: 'Nama layanan', value: d.name }, { label: 'Nomor urut', value: d.position ?? '–' }],
+      };
+    case 'service.delete':
+      return {
+        summary: `Menghapus layanan “${d.name}”${d.mode === 'archived' ? ' (riwayat lama tetap tersimpan)' : ''}`,
+        items: [
+          { label: 'Nama layanan', value: d.name }, { label: 'Nomor urut sebelumnya', value: d.position ?? '–' },
+          { label: 'Cara', value: d.mode === 'archived' ? 'Dinonaktifkan: sudah punya riwayat, jadi laporan lama tetap utuh' : 'Dihapus bersih: belum pernah dipakai' },
+        ],
+      };
     case 'customer.import':
       return {
         summary: `Impor data customer: ${num(d.added)} ditambahkan, ${num(d.updated)} diperbarui, ${num(d.skipped)} dilewati`,

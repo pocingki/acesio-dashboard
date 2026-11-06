@@ -92,7 +92,7 @@ function recordIdsFrom(result, userId, customerId, count) {
 }
 
 // ----- rute -----
-add('GET', '/api/bot/services', 'bot', bot(() => ({ services: db.prepare('SELECT id, position, name FROM services ORDER BY position').all() })));
+add('GET', '/api/bot/services', 'bot', bot(() => ({ services: db.prepare('SELECT id, position, name FROM services WHERE active = 1 ORDER BY position').all() })));
 
 add('GET', '/api/bot/customers', 'bot', bot(({ query }) => {
   const q = String(query.q || '').trim();

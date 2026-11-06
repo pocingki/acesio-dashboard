@@ -1,7 +1,7 @@
 // Profil akun: info akun, data diri, foto, dan ganti password. Dibuka dari tombol nama di topbar
 // oleh semua peran (user, admin, supervisor); setiap orang hanya mengubah akunnya sendiri.
 import { api } from './api.js';
-import { h, icon, openModal, toast, field, ROLE_LABEL, EMP_LABEL } from './ui.js';
+import { h, icon, openModal, toast, field, fmtDay, ROLE_LABEL, EMP_LABEL } from './ui.js';
 
 export const initials = (name) => {
   const parts = String(name || '?').trim().split(/\s+/).filter(Boolean);
@@ -80,6 +80,11 @@ export async function openProfileModal(user, onChange) {
           h('label', { class: 'btn btn--ghost btn--sm', for: 'pf-file', tabindex: '0', onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } } }, 'Pilih foto'),
           removeBtn, fileInput),
         h('p', { class: 'hint' }, 'JPG, PNG, atau WebP. Otomatis dikecilkan.'))),
+    // Jabatan dan tanggal bergabung: hanya tampil. Diatur supervisor di Akun User; server menolak perubahan dari sini.
+    h('dl', { class: 'profile__facts', 'aria-label': 'Data kepegawaian' },
+      h('div', null, h('dt', null, 'Jabatan'), h('dd', null, profile.job_title || h('span', { class: 'muted' }, 'Belum diisi'))),
+      h('div', null, h('dt', null, 'Tanggal bergabung'), h('dd', null, profile.join_date ? fmtDay(profile.join_date) : h('span', { class: 'muted' }, 'Belum diisi')))),
+    h('p', { class: 'hint profile__facts-hint' }, 'Jabatan dan tanggal bergabung diatur oleh supervisor dan tidak bisa diubah di sini.'),
     h('div', { class: 'form-grid' },
       field('Nama lengkap', name), field('No HP / WhatsApp', phone), field('Email', email), field('Tanggal lahir', birth),
       h('div', { class: 'form-grid__full' }, field('Alamat', address))),

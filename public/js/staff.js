@@ -6,7 +6,7 @@ import {
 import { createShell } from './shell.js';
 import { donutCard } from './charts.js';
 import {
-  customersView, createGate, downloadButton, tableWrap, pagerNodes, rangeLabel, NO_CTX,
+  customersView, createGate, downloadButton, tableWrap, pagerNodes, rangeLabel, NO_CTX, toBase64,
 } from './customers.js';
 import { auditView } from './audit.js';
 import { integrationItem } from './integration.js';
@@ -490,13 +490,18 @@ function settingsView(main, ctx) {
 async function boxesView(box, ctx) {
   const gate = createGate(ctx);
   const grid = h('div', { class: 'svc-grid' });
-  box.append(h('p', { class: 'muted mb' }, 'Ketuk kotak untuk mengubah nama dan foto. Komisi diatur di tab Perbedaan komisi.'), grid);
+  box.append(
+    h('div', { class: 'section-head' },
+      h('p', { class: 'muted mb' }, 'Ketuk kotak untuk mengubah nama dan foto, atau menghapusnya. Komisi diatur di tab Perbedaan komisi.'),
+      h('button', { class: 'btn btn--primary btn--sm', type: 'button', onclick: () => openServiceEditor(null, load) }, icon('plus', 16), 'Tambah layanan')),
+    grid);
   async function load() {
     const req = gate.begin();
     try {
       const { services } = await api('/api/services', { signal: req.signal });
       if (!req.ok()) return;
       grid.replaceChildren(...services.map((s) => serviceCard(s, { editIcon: true, onClick: () => openServiceEditor(s, load) })));
+      if (!services.length) grid.replaceChildren(emptyState('Belum ada layanan', 'Klik Tambah layanan untuk membuat kotak pertama.'));
     } catch (e) {
       if (!req.ok() || isAbort(e)) return;
       grid.replaceChildren(emptyState('Layanan belum bisa dimuat', e.message));
@@ -523,17 +528,19 @@ function resizeToDataUrl(file) {
   });
 }
 
+// s = null berarti tambah layanan baru. Pada layanan yang sudah ada tersedia tombol Hapus (pop-up konfirmasi).
 function openServiceEditor(s, onSaved) {
+  const creating = !s;
   let photo;
-  const name = h('input', { class: 'input', value: s.name, maxlength: '100' });
+  const name = h('input', { class: 'input', value: s ? s.name : '', maxlength: '100', placeholder: creating ? 'Mis. Pijat refleksi' : '' });
   const err = h('p', { class: 'error', role: 'alert' });
   const preview = h('div', { class: 'photo-edit__preview' });
   const file = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', hidden: true });
   const removeBtn = h('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, 'Hapus foto');
   function paint() {
-    const url = photo === undefined ? s.photo : photo;
+    const url = photo === undefined ? s?.photo : photo;
     preview.style.backgroundImage = url ? `url("${url}")` : '';
-    preview.textContent = url ? '' : String(s.position);
+    preview.textContent = url ? '' : (s ? String(s.position) : '+');
     removeBtn.hidden = !url;
   }
   paint();
@@ -543,7 +550,8 @@ function openServiceEditor(s, onSaved) {
     try { photo = await resizeToDataUrl(f); paint(); } catch (e) { err.textContent = e.message; }
   });
   removeBtn.addEventListener('click', () => { photo = null; paint(); });
-  const save = h('button', { class: 'btn btn--primary', type: 'submit' }, 'Simpan');
+  const save = h('button', { class: 'btn btn--primary', type: 'submit' }, creating ? 'Tambah' : 'Simpan');
+  const del = creating ? null : h('button', { class: 'btn btn--danger', type: 'button', style: 'margin-right:auto' }, 'Hapus layanan');
   const form = h('form', null,
     field('Nama layanan', name),
     h('div', { class: 'field' }, h('span', { class: 'label' }, 'Foto kotak'),
@@ -552,19 +560,32 @@ function openServiceEditor(s, onSaved) {
           h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => file.click() }, 'Pilih foto'),
           removeBtn, file, h('span', { class: 'hint' }, 'Otomatis dipotong rasio 4:5.')))),
     err,
-    h('div', { class: 'modal__actions' }, h('button', { class: 'btn btn--ghost', type: 'button', onclick: () => modal.close() }, 'Batal'), save));
-  const modal = openModal({ title: `Layanan ${s.position}`, content: form });
+    h('div', { class: 'modal__actions' }, del, h('button', { class: 'btn btn--ghost', type: 'button', onclick: () => modal.close() }, 'Batal'), save));
+  const modal = openModal({ title: creating ? 'Tambah layanan' : `Layanan ${s.position}`, content: form });
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     err.textContent = '';
     save.disabled = true;
     const body = { name: name.value };
-    if (photo !== undefined) body.photo = photo;
+    if (photo !== undefined && photo !== null) body.photo = photo;
+    else if (photo === null && !creating) body.photo = null;
     try {
-      await api(`/api/sv/services/${s.id}`, { method: 'PATCH', body });
-      modal.close(); toast('Layanan disimpan'); onSaved();
+      if (creating) await api('/api/sv/services', { method: 'POST', body });
+      else await api(`/api/sv/services/${s.id}`, { method: 'PATCH', body });
+      modal.close(); toast(creating ? 'Layanan ditambahkan' : 'Layanan disimpan'); onSaved();
     } catch (ex) { err.textContent = ex.message; save.disabled = false; }
   });
+  if (del) {
+    del.addEventListener('click', async () => {
+      const ok = await confirmDialog(`Hapus layanan “${s.name}”? Komisi per user untuk layanan ini ikut dihapus dan nomor layanan sesudahnya bergeser naik. Riwayat dan laporan lama yang memakai layanan ini tetap tersimpan.`, { confirmText: 'Ya, hapus layanan', danger: true });
+      if (!ok) return;
+      del.disabled = true;
+      try {
+        await api(`/api/sv/services/${s.id}`, { method: 'DELETE' });
+        modal.close(); toast('Layanan dihapus'); onSaved();
+      } catch (ex) { err.textContent = ex.message; del.disabled = false; }
+    });
+  }
 }
 
 async function commissionView(box, ctx) {
@@ -572,6 +593,10 @@ async function commissionView(box, ctx) {
   const wrap = h('div');
   box.append(
     h('p', { class: 'muted mb' }, 'Komisi diatur per user dan per layanan, tidak ada komisi umum. Layanan yang belum diisi dihitung Rp0.'),
+    h('div', { class: 'toolbar mb' },
+      h('button', { class: 'btn btn--ghost', type: 'button', onclick: () => openCommissionImport(() => load()) }, importIcon(), 'Impor komisi'),
+      downloadButton('Template CSV', () => ({ url: '/api/sv/commission-template?format=csv', filename: 'template-komisi-terapis.csv' })),
+      downloadButton('Template Excel', () => ({ url: '/api/sv/commission-template?format=xlsx', filename: 'template-komisi-terapis.xlsx' }))),
     wrap);
   async function load() {
     const req = gate.begin();
@@ -593,6 +618,77 @@ async function commissionView(box, ctx) {
     }
   }
   load();
+}
+
+// ---------- impor komisi per terapis (CSV/Excel), pola sama dengan Upload data customer ----------
+const importIcon = () => { const i = icon('download', 16); i.style.transform = 'rotate(180deg)'; return i; };
+const MAX_ISSUES_SHOWN = 200;
+
+function commissionImportResult(r) {
+  const issues = Array.isArray(r?.issues) ? r.issues : [];
+  const shown = issues.slice(0, MAX_ISSUES_SHOWN);
+  return h('div', { role: 'status' },
+    h('div', { class: 'summary-chips summary-chips--tight imp-sum' },
+      h('span', { class: 'pill pill--ok' }, `${fmtNum(r.users)} terapis diproses`),
+      h('span', { class: 'pill' }, `${fmtNum(r.changed)} komisi diubah`),
+      h('span', { class: 'pill pill--off' }, `${fmtNum(r.unchanged)} tidak berubah`),
+      h('span', { class: `pill ${r.skipped ? 'pill--late' : 'pill--off'}` }, `${fmtNum(r.skipped)} dilewati`)),
+    r.history_rows ? h('p', { class: 'muted imp-total' }, `${fmtNum(r.history_rows)} data riwayat ikut diperbarui.`) : null,
+    issues.length ? h('div', { class: 'imp-issues', tabindex: '0', role: 'region', 'aria-label': 'Catatan hasil impor' },
+      h('b', null, 'Catatan'),
+      h('ul', null, shown.map((i) => h('li', null,
+        i.line ? h('b', null, `Baris ${i.line}${i.skipped ? ' (dilewati)' : ''}: `) : null, String(i.text ?? '')))),
+      issues.length > shown.length ? h('p', { class: 'muted' }, `…dan ${fmtNum(issues.length - shown.length)} catatan lain tidak ditampilkan.`) : null) : null);
+}
+
+function openCommissionImport(onDone) {
+  const file = h('input', { class: 'input', id: 'cimp-file', type: 'file', accept: '.csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const apply = h('input', { type: 'checkbox', id: 'cimp-hist' });
+  const err = h('p', { class: 'error', role: 'alert' });
+  const result = h('div');
+  const send = h('button', { class: 'btn btn--primary', type: 'button' }, 'Upload');
+  const body = h('div', null,
+    h('p', null, 'Unggah file CSV atau Excel (.xlsx). Satu baris per layanan, satu kolom per terapis:'),
+    h('p', { class: 'imp-cols' }, ['No', 'Layanan', 'Nama Terapis (@username)', '…'].map((t) => h('span', { class: 'mini' }, t))),
+    h('ul', { class: 'imp-notes' },
+      h('li', null, 'Cara termudah: ', h('b', null, 'unduh template'), ' (sudah berisi layanan, terapis aktif, dan komisi saat ini), ubah angkanya, lalu unggah.'),
+      h('li', null, 'Terapis dikenali dari ', h('b', null, '@username'), ' di judul kolom (atau username / nama persis). Layanan dikenali dari nama; kolom No dipakai bila nama kosong.'),
+      h('li', null, 'Sel kosong tidak mengubah komisi yang sudah ada. Isi 0 untuk mengosongkan. Angka boleh ditulis 25000, 25.000, atau Rp25.000.'),
+      h('li', null, 'Baris atau sel yang bermasalah dilewati dan dilaporkan; sisanya tetap disimpan. Setiap perubahan tercatat di Log audit.')),
+    h('div', { class: 'toolbar mb' }, h('span', { class: 'label' }, 'Template'),
+      downloadButton('CSV', () => ({ url: '/api/sv/commission-template?format=csv', filename: 'template-komisi-terapis.csv' })),
+      downloadButton('Excel', () => ({ url: '/api/sv/commission-template?format=xlsx', filename: 'template-komisi-terapis.xlsx' }))),
+    field('File komisi', file),
+    h('label', { class: 'check', for: 'cimp-hist' }, apply,
+      h('span', null, 'Terapkan juga ke data yang sudah tercatat milik terapis ini. Jika tidak dicentang, komisi baru hanya berlaku untuk input berikutnya.')),
+    err, result,
+    h('div', { class: 'modal__actions' }, h('button', { class: 'btn btn--ghost', type: 'button', onclick: () => modal.close() }, 'Tutup'), send));
+  const modal = openModal({ title: 'Impor komisi terapis', content: body, wide: true });
+
+  send.addEventListener('click', async () => {
+    err.textContent = '';
+    result.replaceChildren();
+    const f = file.files[0];
+    if (!f) { err.textContent = 'Pilih file dulu.'; return; }
+    const lower = f.name.toLowerCase();
+    if (!lower.endsWith('.csv') && !lower.endsWith('.xlsx')) { err.textContent = 'Format file harus .csv atau .xlsx. File .xls lama: simpan ulang sebagai .xlsx.'; return; }
+    if (f.size > 20 * 1024 * 1024) { err.textContent = 'Ukuran file maksimal 20 MB.'; return; }
+    send.disabled = true;
+    send.textContent = 'Memproses…';
+    try {
+      const payload = lower.endsWith('.csv')
+        ? { format: 'csv', content: await f.text() }
+        : { format: 'xlsx', content: toBase64(await f.arrayBuffer()) };
+      payload.apply_to_history = apply.checked;
+      const { result: r } = await api('/api/sv/commissions/import', { method: 'POST', body: payload });
+      toast(`${fmtNum(r.changed)} komisi diubah, ${fmtNum(r.unchanged)} tidak berubah, ${fmtNum(r.skipped)} dilewati`);
+      result.replaceChildren(commissionImportResult(r));
+      file.value = '';
+      onDone();
+    } catch (ex) { err.textContent = ex.message; }
+    send.disabled = false;
+    send.textContent = 'Upload';
+  });
 }
 
 // ---------- kolom rupiah: tampil "Rp5.000" / "Rp250.000", nilai yang dikirim tetap angka bulat ----------
@@ -689,11 +785,13 @@ function accountsView(main, me, ctx) {
       const { accounts } = await api('/api/sv/accounts', { signal: req.signal });
       if (!req.ok()) return;
       box.replaceChildren(tableWrap(h('table', null,
-        h('thead', null, h('tr', null, ['Nama', 'Username', 'Jenis akun', 'Status kerja', 'Status', ''].map((t) => h('th', null, t || h('span', { class: 'sr-only' }, 'Aksi'))))),
+        h('thead', null, h('tr', null, ['Nama', 'Username', 'Jenis akun', 'Jabatan', 'Tgl bergabung', 'Status kerja', 'Status', ''].map((t) => h('th', null, t || h('span', { class: 'sr-only' }, 'Aksi'))))),
         h('tbody', null, accounts.map((a) => h('tr', null,
           h('td', null, h('b', null, a.name)),
           h('td', null, a.username),
           h('td', null, ROLE_LABEL[a.role]),
+          h('td', null, a.job_title || h('span', { class: 'muted' }, '–')),
+          h('td', { class: 'nowrap' }, a.join_date ? fmtDay(a.join_date) : h('span', { class: 'muted' }, '–')),
           h('td', null, a.role === 'user' ? empPill(a.employment) : h('span', { class: 'muted' }, '–')),
           h('td', null, h('span', { class: `pill${a.active ? '' : ' pill--off'}` }, a.active ? 'Aktif' : 'Nonaktif')),
           h('td', null, h('div', { class: 'row-actions' },
@@ -740,6 +838,8 @@ function openAccountEditor(account, onSaved, me) {
   const empField = field('Status kerja', employment, 'Dipakai untuk membedakan komisi karyawan tetap dan part time.');
   const syncEmp = () => { empField.hidden = role.value !== 'user'; };
   role.addEventListener('change', syncEmp); syncEmp();
+  const jobTitle = h('input', { class: 'input', value: account?.job_title || '', maxlength: '60', placeholder: 'Contoh: Terapis Senior' });
+  const joinDate = h('input', { class: 'input', type: 'date', value: account?.join_date || '', min: '1950-01-01', max: '2100-12-31' });
   const active = h('input', { type: 'checkbox', id: 'acc-active', checked: creating || !!account.active, disabled: isSelf });
   const err = h('p', { class: 'error', role: 'alert' });
   const save = h('button', { class: 'btn btn--primary', type: 'submit' }, 'Simpan');
@@ -749,6 +849,9 @@ function openAccountEditor(account, onSaved, me) {
     field(creating ? 'Password' : 'Password baru', password, 'Minimal 8 karakter. Sampaikan ke yang bersangkutan secara langsung.'),
     field('Jenis akun', role, isSelf ? 'Anda tidak bisa mengubah jenis akun sendiri.' : null),
     empField,
+    h('div', { class: 'form-grid' },
+      field('Jabatan', jobTitle, 'Hanya supervisor yang bisa mengubah. Pemilik akun hanya melihatnya di profilnya.'),
+      field('Tanggal bergabung', joinDate, 'Boleh dikosongkan.')),
     creating ? null : h('label', { class: 'check', for: 'acc-active' }, active, h('span', null, 'Akun aktif (bisa login)')),
     err,
     h('div', { class: 'modal__actions' }, h('button', { class: 'btn btn--ghost', type: 'button', onclick: () => modal.close() }, 'Batal'), save));
@@ -758,7 +861,7 @@ function openAccountEditor(account, onSaved, me) {
     err.textContent = '';
     save.disabled = true;
     try {
-      const common = { name: name.value, role: role.value, employment: employment.value };
+      const common = { name: name.value, role: role.value, employment: employment.value, job_title: jobTitle.value, join_date: joinDate.value };
       if (creating) await api('/api/sv/accounts', { method: 'POST', body: { ...common, username: username.value, password: password.value } });
       else {
         const body = { ...common, active: active.checked };
