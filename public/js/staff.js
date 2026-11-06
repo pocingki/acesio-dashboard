@@ -595,6 +595,26 @@ async function commissionView(box, ctx) {
   load();
 }
 
+// ---------- kolom rupiah: tampil "Rp5.000" / "Rp250.000", nilai yang dikirim tetap angka bulat ----------
+const COMM_MAX = 1_000_000_000;
+const rupiahText = (n) => fmtRp(Math.max(0, Math.min(COMM_MAX, Math.trunc(Number(n) || 0))));
+const rupiahValue = (input) => Number(String(input.value).replace(/\D/g, '') || 0);
+function rupiahInput({ value, id, label }) {
+  const input = h('input', { class: 'input', type: 'text', inputmode: 'numeric', autocomplete: 'off', value: rupiahText(value), id, 'aria-label': label });
+  input.addEventListener('focus', () => setTimeout(() => input.select(), 0));
+  input.addEventListener('input', () => {
+    // Pertahankan posisi kursor berdasarkan jumlah digit di sebelah kanannya.
+    const raw = input.value;
+    const caret = input.selectionStart ?? raw.length;
+    const digitsRight = raw.slice(caret).replace(/\D/g, '').length;
+    input.value = rupiahText(rupiahValue(input));
+    let pos = input.value.length;
+    for (let seen = 0; pos > 2 && seen < digitsRight; pos--) if (/\d/.test(input.value[pos - 1])) seen++;
+    input.setSelectionRange(pos, pos);
+  });
+  return input;
+}
+
 async function openCommissionEditor(u, allUsers, onSaved, ctx = NO_CTX) {
   const content = h('div', null, h('p', { class: 'muted' }, 'Memuat…'));
   const modal = openModal({ title: u.name, content, wide: true }); // nama user di paling atas
@@ -609,7 +629,7 @@ async function openCommissionEditor(u, allUsers, onSaved, ctx = NO_CTX) {
   if (!ctx.isCurrent()) { modal.close(); return; }
   const inputs = new Map();
   const grid = h('div', { class: 'comm-grid' }, items.map((it) => {
-    const input = h('input', { class: 'input', type: 'number', min: '0', step: '500', inputmode: 'numeric', value: String(it.amount), id: `cm${it.service_id}`, 'aria-label': `Komisi ${it.name}` });
+    const input = rupiahInput({ value: it.amount, id: `cm${it.service_id}`, label: `Komisi ${it.name}` });
     inputs.set(it.service_id, input);
     return h('div', { class: 'comm-row' }, h('label', { for: `cm${it.service_id}`, title: it.name }, `${it.position}. ${it.name}`), input);
   }));
@@ -629,7 +649,7 @@ async function openCommissionEditor(u, allUsers, onSaved, ctx = NO_CTX) {
           if (!src.value) return;
           try {
             const { items: from } = await api(`/api/sv/commissions/${src.value}`);
-            for (const it of from) inputs.get(it.service_id).value = String(it.amount);
+            for (const it of from) inputs.get(it.service_id).value = rupiahText(it.amount);
             toast('Angka disalin. Periksa lalu klik Simpan komisi.');
           } catch (e) { toast(e.message, 'err'); }
         },
@@ -642,8 +662,8 @@ async function openCommissionEditor(u, allUsers, onSaved, ctx = NO_CTX) {
     err.textContent = '';
     const amounts = {};
     for (const [id, input] of inputs) {
-      const n = Number(input.value === '' ? 0 : input.value);
-      if (!Number.isInteger(n) || n < 0) { err.textContent = 'Komisi harus angka bulat 0 atau lebih'; input.focus(); return; }
+      const n = rupiahValue(input);
+      if (!Number.isInteger(n) || n < 0 || n > COMM_MAX) { err.textContent = 'Komisi harus angka bulat 0 sampai Rp1.000.000.000'; input.focus(); return; }
       amounts[id] = n;
     }
     save.disabled = true;
