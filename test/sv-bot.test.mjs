@@ -19,7 +19,7 @@ process.env.NODE_ENV = 'test';
 delete process.env.TRUST_PROXY;
 
 const { db } = await import('../server/db.js');
-const { hashPassword, verifyPassword } = await import('../server/auth.js');
+const { hashPassword, verifyPassword, login } = await import('../server/auth.js');
 const { logAudit } = await import('../server/audit.js');
 const { ymd } = await import('../server/clock.js');
 // Registry dulu, baru modul rute (modul rute mengimpor `add` dari registry; jangan dibalik).
@@ -132,6 +132,39 @@ test('ganti password akun lain: tercatat tanpa password, dan sesinya dicabut', a
   assert.ok(!JSON.stringify(db.prepare('SELECT * FROM audit_log').all()).includes(baru));
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?').get(uid).n, 0);
   assert.ok(await verifyPassword(baru, db.prepare('SELECT password_hash FROM users WHERE id = ?').get(uid).password_hash));
+});
+
+test('supervisor mengubah username akun mana pun; login lama berhenti, sesi yang ada tetap', async () => {
+  const uid = await insertUser('terapis-lama');
+  const adminId = await insertUser('admin-lama', 'admin');
+  const svId = await insertUser('sv-lama', 'supervisor');
+  db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run('hash-username', uid, Date.now() + 3600_000);
+  const bad = await call('PATCH', `/api/sv/accounts/${uid}`, { body: { username: 'ab' } });
+  assert.equal(bad.status, 400);
+  const taken = await call('PATCH', `/api/sv/accounts/${uid}`, { body: { username: 'admin-lama' } });
+  assert.equal(taken.status, 409);
+  const r = await call('PATCH', `/api/sv/accounts/${uid}`, { body: { username: 'terapis-baru' } });
+  assert.equal(r.status, 200);
+  assert.equal(db.prepare('SELECT username FROM users WHERE id = ?').get(uid).username, 'terapis-baru');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?').get(uid).n, 1, 'ganti username tidak mencabut sesi');
+  const d = detailOf(auditRows('account.update').at(-1));
+  assert.deepEqual(d.changes.username, { from: 'terapis-lama', to: 'terapis-baru' });
+  assert.equal(d.username, 'terapis-baru');
+  const { enrichAuditRows } = await import('../server/auditview.js');
+  const shown = enrichAuditRows([auditRows('account.update').at(-1)])[0];
+  assert.match(shown.summary, /username/);
+  assert.ok(shown.items.some((i) => i.label === 'Username' && i.value === 'terapis-lama → terapis-baru'));
+  assert.equal((await call('PATCH', `/api/sv/accounts/${adminId}`, { body: { username: 'admin-baru' } })).status, 200);
+  assert.equal((await call('PATCH', `/api/sv/accounts/${svId}`, { body: { username: 'sv-baru' } })).status, 200);
+  assert.equal(db.prepare('SELECT username FROM users WHERE id = ?').get(adminId).username, 'admin-baru');
+  assert.equal(await login('admin-lama', 'password-awal-1', { ip: '10.9.9.9' }), null);
+  const signed = await login('admin-baru', 'password-awal-1', { ip: '10.9.9.9' });
+  assert.equal(signed.user.id, adminId);
+  assert.equal(db.prepare('SELECT username FROM users WHERE id = ?').get(svId).username, 'sv-baru');
+  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(svId);
+  const same = await call('PATCH', `/api/sv/accounts/${uid}`, { body: { username: 'terapis-baru' } });
+  assert.equal(same.status, 200);
+  assert.equal(auditRows('account.update').filter((row) => detailOf(row).changes?.username?.to === 'terapis-baru').length, 1);
 });
 
 test('perubahan layanan tercatat (service.update); tanpa perubahan tidak dicatat', async () => {

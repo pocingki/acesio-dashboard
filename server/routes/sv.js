@@ -287,6 +287,15 @@ add('PATCH', '/api/sv/accounts/:id', 'sv', async ({ req, params, body, user }) =
     if (!u) throw new HttpError(404, 'Akun tidak ditemukan');
     const name = body.name === undefined ? u.name : cleanName(body.name);
     if (!name) throw new HttpError(400, 'Nama minimal 2 huruf');
+    let username = u.username;
+    if (body.username !== undefined) {
+      username = String(body.username).trim();
+      if (!/^[a-zA-Z0-9._-]{3,32}$/.test(username)) throw new HttpError(400, 'Username 3–32 karakter: huruf, angka, titik, strip');
+      if (username.toLowerCase() !== u.username.toLowerCase()
+        && db.prepare('SELECT 1 FROM users WHERE username = ? AND id <> ?').get(username, u.id)) {
+        throw new HttpError(409, 'Username sudah dipakai');
+      }
+    }
     const active = body.active === undefined ? u.active : body.active ? 1 : 0;
     const role = body.role === undefined ? u.role : body.role;
     const employment = body.employment === undefined ? u.employment : body.employment;
@@ -301,6 +310,7 @@ add('PATCH', '/api/sv/accounts/:id', 'sv', async ({ req, params, body, user }) =
 
     const changes = {};
     if (name !== u.name) changes.name = { from: u.name, to: name };
+    if (username !== u.username) changes.username = { from: u.username, to: username };
     if (active !== u.active) changes.active = { from: !!u.active, to: !!active };
     if (role !== u.role) changes.role = { from: u.role, to: role };
     if (employment !== u.employment) changes.employment = { from: u.employment, to: employment };
@@ -309,9 +319,9 @@ add('PATCH', '/api/sv/accounts/:id', 'sv', async ({ req, params, body, user }) =
     if (changePassword) changes.password_changed = true; // nilai password TIDAK pernah dicatat
     if (!Object.keys(changes).length) return false;
 
-    db.prepare('UPDATE users SET name = ?, active = ?, role = ?, employment = ?, job_title = ?, join_date = ?, password_hash = ? WHERE id = ?')
-      .run(name, active, role, employment, job.job_title, job.join_date, changePassword ? hash : u.password_hash, u.id);
-    audit(req, user, 'account.update', 'user', u.id, { username: u.username, changes });
+    db.prepare('UPDATE users SET username = ?, name = ?, active = ?, role = ?, employment = ?, job_title = ?, join_date = ?, password_hash = ? WHERE id = ?')
+      .run(username, name, active, role, employment, job.job_title, job.join_date, changePassword ? hash : u.password_hash, u.id);
+    audit(req, user, 'account.update', 'user', u.id, { username, changes });
     return !active || changePassword || role !== u.role;
   });
   // Sesi dicabut setelah commit: password diganti, dinonaktifkan, atau peran berubah.

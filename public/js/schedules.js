@@ -69,12 +69,14 @@ async function approveRequest(s, { onDone, btns }) {
 export function scheduleView(main, user, ctx = NO_CTX) {
   const gate = createGate(ctx);
   const today = todayInTz();
-  const from = h('input', { class: 'input', type: 'date', id: 'sch-from', value: today });
-  const to = h('input', { class: 'input', type: 'date', id: 'sch-to', value: today });
+  const presetDay = /^\d{4}-\d{2}-\d{2}$/.test(ctx.params?.day || '') ? ctx.params.day : today;
+  const from = h('input', { class: 'input', type: 'date', id: 'sch-from', value: presetDay });
+  const to = h('input', { class: 'input', type: 'date', id: 'sch-to', value: presetDay });
   const userSel = h('select', { class: 'input select', id: 'sch-user' }, h('option', { value: '' }, 'Semua user'));
   const statusSel = h('select', { class: 'input select', id: 'sch-status' },
     h('option', { value: '' }, 'Semua status'),
     Object.entries(STAFF_STATUS_FILTER).map(([v, l]) => h('option', { value: v }, l)));
+  if (ctx.params?.status === 'menunggu') statusSel.value = 'menunggu';
   const q = h('input', { class: 'input', type: 'search', id: 'sch-q', placeholder: 'Cari nama customer, No RM, atau nama user' });
   const rangeMsg = h('p', { class: 'error range-msg', role: 'alert' });
   const summary = h('p', { class: 'muted', role: 'status' }, 'Memuat…');

@@ -1,7 +1,8 @@
 import { db } from './db.js';
+import { now } from './clock.js';
 import { HttpError } from './util.js';
 
-// Enam tipe notifikasi untuk user pemilik jadwal (kontrak bagian 3 dan 5).
+// Tipe notifikasi. Enam pertama untuk terapis; perlu_approve untuk admin dan supervisor.
 export const NOTIFICATION_TYPES = Object.freeze({
   tugas_baru: 'tugas_baru',
   tugas_diubah: 'tugas_diubah',
@@ -9,6 +10,7 @@ export const NOTIFICATION_TYPES = Object.freeze({
   tugas_selesai: 'tugas_selesai',
   tugas_disetujui: 'tugas_disetujui',
   tugas_dibatalkan: 'tugas_dibatalkan',
+  perlu_approve: 'perlu_approve',
 });
 
 // Judul baku tiap tipe.
@@ -19,6 +21,7 @@ export const NOTIFICATION_TITLES = Object.freeze({
   tugas_selesai: 'Tugas selesai',
   tugas_disetujui: 'Pekerjaan disetujui, isi SOAP',
   tugas_dibatalkan: 'Tugas dibatalkan',
+  perlu_approve: 'Perlu approve terapis',
 });
 
 // Hanya INSERT. Ikut transaksi yang sedang berjalan dan tidak pernah melempar error ke pemanggil:
@@ -61,7 +64,31 @@ export function unreadCount(userId) {
 }
 
 // Terbaru dulu. day diambil dari jadwal terkait (null bila jadwal tidak ada).
+// Jadwal yang hitung mundurnya sudah habis (siap di-approve) diberi satu notifikasi
+// ke tiap admin dan supervisor aktif. Dipanggil saat lonceng dibuka; aman diulang.
+export function syncApprovalNotifications(at = now()) {
+  const nowIso = at.toISOString();
+  const due = db.prepare(`SELECT s.id, s.day, s.start_time, c.name AS customer_name, u.name AS therapist_name
+    FROM schedules s
+    JOIN customers c ON c.id = s.customer_id
+    JOIN users u ON u.id = s.user_id
+    WHERE s.status = 'berjalan' AND s.flow = 1 AND s.due_at != '' AND s.due_at <= ?`).all(nowIso);
+  if (!due.length) return 0;
+  const staff = db.prepare("SELECT id FROM users WHERE active = 1 AND role IN ('admin', 'supervisor')").all();
+  const exists = db.prepare("SELECT 1 FROM notifications WHERE user_id = ? AND schedule_id = ? AND type = 'perlu_approve'");
+  let made = 0;
+  for (const s of due) {
+    const body = `${s.therapist_name} · ${s.customer_name} · ${s.day} ${String(s.start_time || '').slice(0, 5)}`;
+    for (const st of staff) {
+      if (exists.get(st.id, s.id)) continue;
+      if (createNotification({ userId: st.id, type: 'perlu_approve', scheduleId: s.id, body })) made += 1;
+    }
+  }
+  return made;
+}
+
 export function listNotifications(userId, { limit } = {}) {
+  try { syncApprovalNotifications(); } catch { /* lonceng tetap menampilkan yang sudah ada */ }
   const n = readLimit(limit);
   const rows = db.prepare(`SELECT n.id, n.type, n.title, n.body, n.schedule_id, n.created_at, n.read_at, s.day AS day
     FROM notifications n LEFT JOIN schedules s ON s.id = n.schedule_id

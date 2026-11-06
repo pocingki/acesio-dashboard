@@ -238,10 +238,12 @@ test('notifikasi: user A tidak melihat milik user B', async () => {
   assert.ok(s.notifications.every((x) => !bSched.has(x.schedule_id)));
 });
 
-test('notifikasi: admin/supervisor 403 pada kedua endpoint; tanpa login 401', async () => {
+test('notifikasi: admin dan supervisor boleh membuka loncengnya; tanpa login 401', async () => {
   for (const who of ['adm', 'spv']) {
-    assert.equal((await api(who, 'GET', '/api/my/notifications')).status, 403, who);
-    assert.equal((await api(who, 'POST', '/api/my/notifications/read', { all: true })).status, 403, who);
+    const list = await api(who, 'GET', '/api/my/notifications');
+    assert.equal(list.status, 200, who);
+    assert.ok(Array.isArray(list.json.notifications));
+    assert.equal((await api(who, 'POST', '/api/my/notifications/read', { all: true })).status, 200, who);
   }
   assert.equal((await api(null, 'GET', '/api/my/notifications')).status, 401);
   assert.equal((await api(null, 'POST', '/api/my/notifications/read', { all: true })).status, 401);

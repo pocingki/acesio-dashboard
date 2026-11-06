@@ -125,6 +125,8 @@ test('selama hitung mundur: SOAP kedua dan approve ditolak, tidak ada record', a
   const a = await approve('adm', s.id);
   assert.equal(a.status, 409);
   assert.equal(a.json.code, 'TIMER_RUNNING');
+  const early = await api('adm', 'GET', '/api/my/notifications');
+  assert.ok(early.json.notifications.every((x) => x.schedule_id !== s.id), 'belum ada notifikasi approve selama hitung mundur');
   assert.equal(records(), before);
   assert.equal(one('SELECT status FROM schedules WHERE id = ?', s.id).status, 'berjalan');
 });
@@ -151,6 +153,19 @@ test('waktu habis -> menunggu approve; muncul di filter staf; staf bisa membaca 
   assert.equal((await api('adm', 'GET', '/api/staff/schedules?status=ngawur')).status, 400);
   const home = await api('budi', 'GET', '/api/my/home');
   assert.ok(home.json.phases.menunggu >= 1);
+  const bell = await api('adm', 'GET', '/api/my/notifications');
+  assert.equal(bell.status, 200, bell.text);
+  const item = bell.json.notifications.find((x) => x.type === 'perlu_approve' && x.schedule_id === s.id);
+  assert.ok(item, 'admin diberi tahu untuk approve');
+  assert.equal(item.read, false);
+  assert.match(item.body, /Budi/);
+  assert.match(item.body, /Rina/);
+  const again = await api('adm', 'GET', '/api/my/notifications');
+  assert.equal(again.json.notifications.filter((x) => x.type === 'perlu_approve' && x.schedule_id === s.id).length, 1);
+  const svBell = await api('sv', 'GET', '/api/my/notifications');
+  assert.ok(svBell.json.notifications.some((x) => x.type === 'perlu_approve' && x.schedule_id === s.id));
+  const therapist = await api('budi', 'GET', '/api/my/notifications');
+  assert.ok(therapist.json.notifications.every((x) => x.type !== 'perlu_approve'));
 });
 
 test('approve: hanya staf, sekali saja; approve = Selesai + layanan/komisi tercatat + notifikasi', async () => {

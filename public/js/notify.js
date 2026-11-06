@@ -14,6 +14,7 @@ const TYPES = {
   tugas_selesai: { title: 'Tugas selesai', tone: 'selesai' },
   tugas_disetujui: { title: 'Pekerjaan disetujui, isi SOAP', tone: 'selesai' },
   tugas_dibatalkan: { title: 'Tugas dibatalkan', tone: 'batal' },
+  perlu_approve: { title: 'Perlu approve terapis', tone: 'menunggu' },
 };
 
 // Judul tipe, isi, dan nada warna untuk satu notifikasi. Tipe tak dikenal memakai judul dari server.

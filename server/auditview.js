@@ -204,6 +204,7 @@ function describe(row, d, L) {
       const items = [{ label: 'Akun', value: `${L.user(row.target_id)}${d.username ? ` (${d.username})` : ''}` }];
       const parts = [];
       if (c.name) { items.push(fieldChange('Nama', c.name.from, c.name.to)); parts.push('nama'); }
+      if (c.username) { items.push(fieldChange('Username', c.username.from, c.username.to)); parts.push('username'); }
       if (c.active) { items.push(fieldChange('Status akun', c.active.from, c.active.to, (x) => (x ? 'Aktif' : 'Nonaktif'))); parts.push(c.active.to ? 'diaktifkan' : 'dinonaktifkan'); }
       if (c.role) { items.push(fieldChange('Peran', c.role.from, c.role.to, (x) => ROLE[x] || x)); parts.push('peran'); }
       if (c.employment) { items.push(fieldChange('Status kerja', c.employment.from, c.employment.to, (x) => EMP[x] || x)); parts.push('status kerja'); }

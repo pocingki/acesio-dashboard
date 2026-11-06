@@ -23,6 +23,7 @@
 .notify__item[data-tone="berjalan"] .notify__bar { background: var(--blue-900); }
 .notify__item[data-tone="selesai"] .notify__bar { background: var(--ok-strong); }
 .notify__item[data-tone="batal"] .notify__bar { background: var(--danger); }
+.notify__item[data-tone="menunggu"] .notify__bar { background: #d9731a; }
 .notify__text { display: grid; gap: 2px; min-width: 0; }
 .notify__title { font-weight: 700; font-size: 14px; }
 .notify__desc { font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }

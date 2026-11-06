@@ -12,6 +12,7 @@ import { auditView } from './audit.js';
 import { integrationItem } from './integration.js';
 import { groupRecords, customerGroups } from './groups.js';
 import { scheduleView } from './schedules.js';
+import { notificationBell } from './notify.js';
 
 const isAbort = (e) => e?.name === 'AbortError';
 const ATT_PAGE_SIZE = 50;
@@ -30,8 +31,12 @@ export function renderStaffApp(root, user, { onLogout }) {
       ],
     });
   }
-  const shell = createShell({
-    user, onLogout, tabs,
+  let shell;
+  const bell = notificationBell({
+    goTo: (_tab, params) => shell.select('schedule', { day: params?.day, status: 'menunggu' }),
+  });
+  shell = createShell({
+    user, onLogout, tabs, actions: [bell],
     // ctx = { signal, isCurrent() } dari shell.select; NO_CTX hanya cadangan bila shell lama.
     onSelect: (id, main, ctx) => {
       const c = ctx || NO_CTX;
@@ -44,6 +49,8 @@ export function renderStaffApp(root, user, { onLogout }) {
       else if (id === 'accounts' && sv) accountsView(main, user, c);
     },
   });
+  const baseDispose = shell.dispose;
+  shell.dispose = () => { bell.dispose(); baseDispose(); };
   root.append(shell.el);
   shell.select('report');
 }
@@ -828,7 +835,7 @@ function openAccountEditor(account, onSaved, me) {
   const creating = !account;
   const isSelf = !creating && account.id === me.id;
   const name = h('input', { class: 'input', value: account ? account.name : '', maxlength: '100' });
-  const username = h('input', { class: 'input', value: account ? account.username : '', maxlength: '32', autocapitalize: 'none', spellcheck: 'false', disabled: !creating });
+  const username = h('input', { class: 'input', value: account ? account.username : '', maxlength: '32', autocapitalize: 'none', spellcheck: 'false', autocomplete: 'off' });
   const password = h('input', { class: 'input', type: 'text', autocomplete: 'off', placeholder: creating ? '' : 'Kosongkan jika tidak diganti' });
   const role = h('select', { class: 'input select', disabled: isSelf },
     [['user', 'User (input layanan)'], ['admin', 'Admin (lihat data, approve, tanpa komisi)'], ['supervisor', 'Supervisor (akses penuh)']]
@@ -845,7 +852,7 @@ function openAccountEditor(account, onSaved, me) {
   const save = h('button', { class: 'btn btn--primary', type: 'submit' }, 'Simpan');
   const form = h('form', null,
     field('Nama (tampil di kotak layanan)', name),
-    field('Username untuk login', username, creating ? 'Huruf, angka, titik, atau strip. Tidak bisa diubah nanti.' : null),
+    field('Username untuk login', username, 'Huruf, angka, titik, atau strip. Dipakai saat masuk.'),
     field(creating ? 'Password' : 'Password baru', password, 'Minimal 8 karakter. Sampaikan ke yang bersangkutan secara langsung.'),
     field('Jenis akun', role, isSelf ? 'Anda tidak bisa mengubah jenis akun sendiri.' : null),
     empField,
@@ -861,7 +868,7 @@ function openAccountEditor(account, onSaved, me) {
     err.textContent = '';
     save.disabled = true;
     try {
-      const common = { name: name.value, role: role.value, employment: employment.value, job_title: jobTitle.value, join_date: joinDate.value };
+      const common = { name: name.value, username: username.value, role: role.value, employment: employment.value, job_title: jobTitle.value, join_date: joinDate.value };
       if (creating) await api('/api/sv/accounts', { method: 'POST', body: { ...common, username: username.value, password: password.value } });
       else {
         const body = { ...common, active: active.checked };
