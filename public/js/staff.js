@@ -389,7 +389,7 @@ function openUserDetail(u, me, { day: startDay, period, checkRange, onChanged, c
         h('p', { class: 'approve__q' }, 'Bagaimana kehadiran user pada tanggal ini?'),
         choices(null, (v) => { late = v; btn.disabled = false; hint.hidden = true; }),
         btn, hint,
-        h('p', { class: 'approve__lock' }, lockText, 'Setelah di-approve, data hari ini dikunci: user tidak bisa menghapus atau menambah.'));
+        h('p', { class: 'approve__lock' }, lockText, 'Setelah di-approve, user tidak bisa menghapus data hari ini. Status tugas di menu Jadwal tidak berubah dan tetap bisa disetujui.'));
     }
 
     // --- sudah di-approve ---
@@ -412,7 +412,7 @@ function openUserDetail(u, me, { day: startDay, period, checkRange, onChanged, c
           h('button', {
             class: 'btn btn--danger btn--sm', type: 'button',
             onclick: async () => {
-              if (!(await confirmDialog('Batalkan approve? User bisa menghapus atau menambah data hari itu lagi.', { confirmText: 'Batalkan approve', danger: true }))) return;
+              if (!(await confirmDialog('Batalkan approve ketepatan waktu? User bisa menghapus data hari itu lagi. Status tugas tidak berubah.', { confirmText: 'Batalkan approve', danger: true }))) return;
               try { await api(`/api/sv/reviews?user_id=${u.id}&day=${d.day}`, { method: 'DELETE' }); toast('Approve dibatalkan'); await load(d.day); onChanged(); } catch (e) { toast(e.message, 'err'); }
             },
           }, 'Batalkan approve'))));

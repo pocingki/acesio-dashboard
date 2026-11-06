@@ -114,10 +114,18 @@ add('GET', '/api/staff/users/:id/detail', 'staff', ({ user, params, query }) => 
   const u = db.prepare(`SELECT id, name, username, employment FROM users
     WHERE id = ? AND (role = 'user' OR EXISTS (SELECT 1 FROM records WHERE user_id = users.id))`).get(id);
   if (!u) throw new HttpError(404, 'User tidak ditemukan');
+  // Hari dari layanan yang sudah tercatat ATAU dari jadwal yang belum dibatalkan, supaya ketepatan
+  // waktu bisa di-approve selagi tugas masih menunggu (belum ada record).
   const days = db.prepare(`
-    SELECT r.day, COUNT(r.id) AS services, COUNT(DISTINCT r.customer_id) AS customers, d.late
-    FROM records r LEFT JOIN day_reviews d ON d.user_id = r.user_id AND d.day = r.day
-    WHERE r.user_id = ? GROUP BY r.day ORDER BY r.day DESC LIMIT 90`).all(u.id);
+    SELECT day, SUM(services) AS services, SUM(customers) AS customers, MAX(late) AS late FROM (
+      SELECT r.day AS day, COUNT(r.id) AS services, COUNT(DISTINCT r.customer_id) AS customers, d.late AS late
+      FROM records r LEFT JOIN day_reviews d ON d.user_id = r.user_id AND d.day = r.day
+      WHERE r.user_id = ? GROUP BY r.day
+      UNION ALL
+      SELECT s.day, 0, 0, d.late
+      FROM schedules s LEFT JOIN day_reviews d ON d.user_id = s.user_id AND d.day = s.day
+      WHERE s.user_id = ? AND s.status != 'batal' GROUP BY s.day
+    ) AS work GROUP BY day ORDER BY day DESC LIMIT 90`).all(u.id, u.id);
   const day = blank(query.day) ? days[0]?.day || null : String(query.day).trim();
   let records = [];
   let review = null;
@@ -135,7 +143,10 @@ add('POST', '/api/staff/reviews', 'staff', ({ req, user, body }) => {
   if (!target) throw new HttpError(404, 'User tidak ditemukan');
   if (!realYmd(body.day)) throw new HttpError(400, 'Tanggal tidak valid');
   if (typeof body.late !== 'boolean') throw new HttpError(400, 'Pilih dulu: tepat waktu atau terlambat');
-  if (!db.prepare('SELECT 1 FROM records WHERE user_id = ? AND day = ?').get(target.id, body.day)) throw new HttpError(400, 'User ini tidak punya data pada tanggal itu');
+  const hasWork = db.prepare(`SELECT 1 AS n FROM records WHERE user_id = ? AND day = ?
+    UNION ALL SELECT 1 FROM schedules WHERE user_id = ? AND day = ? AND status != 'batal' LIMIT 1`)
+    .get(target.id, body.day, target.id, body.day);
+  if (!hasWork) throw new HttpError(400, 'User ini tidak punya jadwal atau data pada tanggal itu');
   const existing = db.prepare('SELECT late FROM day_reviews WHERE user_id = ? AND day = ?').get(target.id, body.day);
   if (existing && !isSv(user)) throw new HttpError(403, 'Sudah di-approve. Hanya supervisor yang bisa mengubahnya.');
   // Approve baru hanya pada hari yang sama. Supervisor boleh mengubah status approve yang sudah ada (termasuk hari lalu).

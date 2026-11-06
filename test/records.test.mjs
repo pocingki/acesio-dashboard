@@ -205,8 +205,7 @@ test('key berbeda dan tanpa key: masing-masing (jadwal berbeda) membuat data bar
 
 test('key yang sama dipakai user lain tidak dianggap replay', async () => {
   const a = await post('ub', 'key-dipakai-bersama', await mkVisit(ids.ub));
-  // ub hari ini sudah di-approve (tes sebelumnya) -> 409; pakai ua untuk membuktikan keterpisahan
-  assert.ok([200, 409].includes(a.status));
+  assert.equal(a.status, 200);
   const b = await post('ua', 'key-dipakai-bersama', await mkVisit(ids.ua));
   assert.equal(b.status, 200);
   assert.equal(b.headers.get('idempotent-replay'), null);
@@ -234,17 +233,17 @@ test('key tidak valid: 400, tidak ada data dibuat, jadwal tetap belum selesai', 
   assert.equal(statusOf(sid), 'baru');
 });
 
-test('gagal di tengah (hari sudah di-approve): tidak ada record, jadwal tetap baru, key tidak tersimpan dan bisa dipakai ulang', async () => {
-  // Pengganti tes lama "layanan tidak ada": layanan kini ditentukan jadwal, jadi kegagalan dipicu aturan hari terkunci.
+test('gagal di tengah (layanan nonaktif): tidak ada record, jadwal tetap baru, key tidak tersimpan dan bisa dipakai ulang', async () => {
+  // Ketepatan waktu tidak lagi menggagalkan penyelesaian tugas, jadi rollback diuji lewat layanan yang dinonaktifkan.
   const before = nRecordsOf(ids.uc);
   const sid = await mkVisit(ids.uc, [1, 2, 3]);
-  sdb.prepare('INSERT INTO day_reviews (user_id, day, late, reviewed_by, reviewed_at) VALUES (?, ?, 0, ?, ?)').run(ids.uc, TODAY, ids.sv, new Date().toISOString());
+  sdb.prepare('UPDATE services SET active = 0 WHERE id = 1').run();
   const bad = await post('uc', 'key-gagal-0001', sid);
-  assert.equal(bad.status, 409);
+  assert.equal(bad.status, 400);
   assert.equal(nRecordsOf(ids.uc), before, 'tidak boleh ada record yang tertinggal');
   assert.equal(statusOf(sid), 'baru');
   assert.equal(count('SELECT COUNT(*) AS n FROM idempotency_keys WHERE key = ?', 'key-gagal-0001'), 0);
-  sdb.prepare('DELETE FROM day_reviews WHERE user_id = ? AND day = ?').run(ids.uc, TODAY);
+  sdb.prepare('UPDATE services SET active = 1 WHERE id = 1').run();
   const ok = await post('uc', 'key-gagal-0001', sid);
   assert.equal(ok.status, 200);
   assert.equal(ok.headers.get('idempotent-replay'), null);

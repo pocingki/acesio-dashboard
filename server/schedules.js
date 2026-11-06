@@ -332,7 +332,9 @@ function finishSchedule(row, { approvedBy = null, soap = null } = {}) {
     WHERE ss.schedule_id = ? ORDER BY sv.position`).all(row.id).map((r) => r.service_id);
   if (!serviceIds.length) throw new HttpError(409, 'Jadwal ini tidak punya layanan. Hubungi admin.', 'SCHEDULE_STATE');
   const customer = { id: row.customer_id, rm_no: row.customer_rm, name: row.customer_name, phone: row.customer_phone };
-  const { count, batch } = createRecords({ userId: row.user_id, customer, serviceIds, source: 'web', note: '', batch: crypto.randomUUID() });
+  const { count, batch } = createRecords({
+    userId: row.user_id, customer, serviceIds, source: 'web', note: '', batch: crypto.randomUUID(), fromSchedule: true,
+  });
   const stamp = now().toISOString();
   db.prepare(`UPDATE schedules SET status = 'selesai', completed_at = ?, started_at = CASE WHEN started_at = '' THEN ? ELSE started_at END,
     batch = ?, soap_s = COALESCE(?, soap_s), soap_o = COALESCE(?, soap_o), soap_a = COALESCE(?, soap_a), soap_p = COALESCE(?, soap_p),

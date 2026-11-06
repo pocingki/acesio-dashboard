@@ -10,7 +10,9 @@ const nowIso = () => new Date().toISOString();
 // Satu-satunya jalur pembuatan record. Semua pengecekan dan INSERT ada di satu transaksi
 // (ikut transaksi luar bila dipanggil dari withIdempotency). Mengembalikan { count, batch }.
 // batch boleh diberikan pemanggil (alur jadwal menyimpannya ke schedules.batch); bila kosong dibuat UUID baru.
-export function createRecords({ userId, customer, serviceIds, source, note, batch: givenBatch }) {
+// fromSchedule: penyelesaian tugas (approve staf, atau SOAP pada alur lama). Ketepatan waktu
+// (day_reviews) tidak boleh menahan komisi tugas itu. Jalur lain, termasuk bot, tetap terkunci.
+export function createRecords({ userId, customer, serviceIds, source, note, batch: givenBatch, fromSchedule = false }) {
   return tx(() => {
     const u = db.prepare('SELECT id, role, active FROM users WHERE id = ?').get(userId);
     if (!u) throw new HttpError(404, 'User tidak ditemukan');
@@ -22,7 +24,7 @@ export function createRecords({ userId, customer, serviceIds, source, note, batc
     if (!Array.isArray(serviceIds) || serviceIds.length === 0) throw new HttpError(400, 'Pilih minimal satu layanan');
 
     const day = ymd();
-    if (db.prepare('SELECT 1 FROM day_reviews WHERE user_id = ? AND day = ?').get(userId, day)) {
+    if (!fromSchedule && db.prepare('SELECT 1 FROM day_reviews WHERE user_id = ? AND day = ?').get(userId, day)) {
       throw new HttpError(409, 'Data hari ini sudah di-approve dan dikunci. Hubungi supervisor jika perlu menambah.');
     }
     const price = db.prepare('SELECT amount FROM user_commissions WHERE user_id = ? AND service_id = ?');

@@ -351,22 +351,25 @@ test('POST /api/records: milik user lain atau tidak ada 404; besok SCHEDULE_NOT_
   assert.equal(recordsOf(uBudi) + recordsOf(uSari), rec);
 });
 
-test('hari sudah di-approve: 409, tidak ada record, jadwal tetap belum selesai', async () => {
+test('ketepatan waktu tidak mengunci penyelesaian tugas, dan komisi tidak ganda', async () => {
   const lock = await mkAccount('lock', 'user', 'User Terkunci');
   cookies.lock = (await srv.login('lock', PASS)).cookie;
   const s = await mk({ userId: lock, serviceIds: [1, 2] });
   await api('lock', 'POST', `/api/my/schedules/${s.id}/start`);
   const svId = one("SELECT id FROM users WHERE username = 'admin'").id;
   sdb.prepare('INSERT INTO day_reviews (user_id, day, late, reviewed_by, reviewed_at) VALUES (?, ?, 0, ?, ?)').run(lock, TODAY, svId, new Date().toISOString());
-  const nf = notifs(lock, 'tugas_selesai').length;
 
   const r = await complete('lock', s.id, {}, { 'Idempotency-Key': 'kunci-terkunci-01' });
-  assert.equal(r.status, 409, r.text);
-  assert.equal(recordsOf(lock), 0);
-  assert.equal(statusOf(s.id), 'berjalan');
-  assert.equal(one('SELECT soap_s FROM schedules WHERE id = ?', s.id).soap_s, '');
-  assert.equal(notifs(lock, 'tugas_selesai').length, nf);
-  assert.equal(one("SELECT COUNT(*) AS n FROM idempotency_keys WHERE key = 'kunci-terkunci-01'").n, 0);
+  assert.equal(r.status, 200, r.text);
+  assert.equal(recordsOf(lock), 2);
+  assert.equal(statusOf(s.id), 'selesai');
+  assert.equal(one('SELECT late FROM day_reviews WHERE user_id = ? AND day = ?', lock, TODAY).late, 0);
+  assert.equal(notifs(lock, 'tugas_selesai').length, 1);
+
+  const again = await complete('lock', s.id, {}, { 'Idempotency-Key': 'kunci-terkunci-02' });
+  assert.equal(again.status, 409, again.text);
+  assert.equal(again.json.code, 'SCHEDULE_STATE');
+  assert.equal(recordsOf(lock), 2);
 });
 
 test('admin dan supervisor tidak bisa memakai endpoint my/* dan POST /api/records (403)', async () => {
