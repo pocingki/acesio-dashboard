@@ -2,7 +2,7 @@ import { add } from './index.js';
 import { HttpError } from '../util.js';
 import { requireWorker } from './helpers.js';
 import { clientIp } from '../auth.js';
-import { withIdempotency } from '../idempotency.js';
+import { requestFingerprint, withIdempotency } from '../idempotency.js';
 import { deleteRecord } from '../records.js';
 import { completeSchedule } from '../schedules.js';
 
@@ -19,10 +19,18 @@ add('POST', '/api/records', 'user', ({ req, res, user, body }) => {
   }
   const sid = typeof raw === 'boolean' ? NaN : Number(String(raw).trim());
   if (!Number.isInteger(sid) || sid < 1) throw new HttpError(400, 'ID jadwal tidak valid');
+  const soap = b.soap && typeof b.soap === 'object' ? b.soap : {};
+  const fingerprint = requestFingerprint({
+    schedule_id: sid,
+    s: typeof soap.s === 'string' ? soap.s : '',
+    o: typeof soap.o === 'string' ? soap.o : '',
+    a: typeof soap.a === 'string' ? soap.a : '',
+    p: typeof soap.p === 'string' ? soap.p : '',
+  });
   const out = withIdempotency(user.id, req.headers['idempotency-key'], () => {
     const result = completeSchedule({ user, scheduleId: sid, soap: b.soap, ip: clientIp(req) });
     return { status: 200, body: { ok: true, count: result.count, customer: result.customer, schedule: result.schedule } };
-  });
+  }, fingerprint);
   if (out.replayed) res.setHeader('Idempotent-Replay', 'true');
   return out.body;
 });

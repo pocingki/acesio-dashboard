@@ -70,8 +70,11 @@ try {
   fail(`salinan tidak lolos pemeriksaan (${err.message})`);
 }
 copy.close();
+try { fs.chmodSync(target, 0o600); } catch { /* izin OS tidak bisa dipersempit; folder backup tetap harus privat */ }
+try { fs.chmodSync(backupDir, 0o700); } catch { /* folder sudah ada dengan pemilik lain */ }
 
 console.log(`Backup dibuat: ${target} (${fmtSize(fs.statSync(target).size)})`);
+console.log('Berkas ini berisi data klinis, termasuk SOAP. Jangan disalin ke tempat yang bisa dibaca orang lain.');
 
 // Urut tanpa ekstensi: "…-2100" harus lebih lama dari "…-2100-20" (karakter "-" mengurut sebelum ".").
 const key = (f) => f.replace(/\.db$/, '');

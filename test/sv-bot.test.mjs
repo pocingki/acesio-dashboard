@@ -260,6 +260,9 @@ test('request_id / Idempotency-Key sama dua kali -> satu record, respons sama, h
   assert.deepEqual(second.body, JSON.parse(JSON.stringify(first.body))); // replay = body yang tersimpan sebagai JSON
   assert.equal(second.res.headers['Idempotent-Replay'], 'true');
   assert.equal(countRecords(cust), 2, 'permintaan ulang tidak boleh membuat data baru');
+  const clash = await post({ request_id: 'req-abc-12345', service_ids: [3] });
+  assert.equal(clash.status, 409);
+  assert.equal(countRecords(cust), 2, 'ID sama dengan isi berbeda tidak boleh mencatat layanan baru');
   const dbIds = db.prepare('SELECT id FROM records WHERE customer_id = ? ORDER BY id').all(cust).map((r) => r.id);
   assert.deepEqual([...first.body.record_ids].sort((a, b) => a - b), dbIds);
 
@@ -273,17 +276,17 @@ test('request_id / Idempotency-Key sama dua kali -> satu record, respons sama, h
   assert.equal(replay.res.headers['Idempotent-Replay'], 'true');
   assert.equal(countRecords(cust), 6);
 
-  // tanpa key: perilaku lama, tiap permintaan membuat data
-  await post();
-  await post();
-  assert.equal(countRecords(cust), 10);
+  // tanpa request_id: ditolak, tidak ada baris baru
+  assert.equal((await post()).status, 400);
+  assert.equal((await post()).status, 400);
+  assert.equal(countRecords(cust), 6);
 
   // key rusak / bentrok
   assert.equal((await post({ request_id: 'pendek' })).status, 400);
   assert.equal((await post({ request_id: 'spasi tidak boleh' })).status, 400);
   assert.equal((await post({ request_id: 123456789 })).status, 400);
   assert.equal((await post({ request_id: 'req-abc-11111' }, { 'Idempotency-Key': 'req-abc-22222' })).status, 400);
-  assert.equal(countRecords(cust), 10);
+  assert.equal(countRecords(cust), 6);
 });
 
 // ---------- seed ----------

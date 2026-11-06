@@ -7,6 +7,7 @@
 // Yang dikirim ke WhatsApp: nama, No RM, jumlah kunjungan, waktu dan nama layanan terakhir. SOAP,
 // komisi, dan data terapis TIDAK pernah dikirim.
 import crypto from 'node:crypto';
+import dns from 'node:dns/promises';
 import net from 'node:net';
 import { db, tx } from './db.js';
 import { HttpError } from './util.js';
@@ -62,24 +63,92 @@ export function parseCode(raw) {
   throw new HttpError(400, 'Kode tidak dikenali. Tempel "kode sambungan" atau "kunci akses" dari WhatsApp.');
 }
 
-function privateHost(host) {
-  if (host === 'localhost' || host.endsWith('.localhost')) return true;
-  if (net.isIP(host) === 4) {
-    const [a, b] = host.split('.').map(Number);
-    return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
-  }
-  return host === '[::1]' || host === '::1';
+function ipv4Parts(ip) {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip);
+  if (!m) return null;
+  const parts = m.slice(1).map(Number);
+  return parts.every((n) => n <= 255) ? parts : null;
 }
 
-export function cleanUrl(raw) {
+function unwrapIp(ip) {
+  const lower = String(ip || '').toLowerCase().replace(/^\[|\]$/g, '');
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(lower);
+  return mapped ? mapped[1] : lower;
+}
+
+// public = boleh di internet. loopback/private = gateway di klinik, hanya bila ditulis sebagai IP.
+// blocked = metadata, link-local, multicast, dan alamat yang tidak boleh dihubungi sama sekali.
+export function addressClass(ip) {
+  const raw = unwrapIp(ip);
+  const v4 = ipv4Parts(raw);
+  if (v4) {
+    const [a, b] = v4;
+    const n = ((a << 24) >>> 0) + (b << 16) + (v4[2] << 8) + v4[3];
+    if (a === 0 || a === 127) return a === 127 ? 'loopback' : 'blocked';
+    if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return 'private';
+    if (a === 169 && b === 254) return 'blocked';
+    if (a === 100 && b >= 64 && b <= 127) return 'blocked';
+    if (a >= 224) return 'blocked';
+    if (n >= 0xC0000000 && n <= 0xC00000FF) return 'blocked';
+    if (n >= 0xC0000200 && n <= 0xC00002FF) return 'blocked';
+    if (n >= 0xC6336400 && n <= 0xC63364FF) return 'blocked';
+    if (n >= 0xCB007100 && n <= 0xCB0071FF) return 'blocked';
+    return 'public';
+  }
+  if (net.isIP(raw) !== 6) return 'blocked';
+  if (raw.startsWith('2001:db8')) return 'blocked';
+  if (raw === '::1') return 'loopback';
+  if (raw === '::') return 'blocked';
+  if (/^fe[89ab]/i.test(raw) || raw.startsWith('ff')) return 'blocked';
+  if (/^f[cd]/i.test(raw)) return 'private';
+  return 'public';
+}
+
+function literalLocalName(hostname) {
+  const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  const kind = addressClass(host);
+  return kind === 'loopback' || kind === 'private';
+}
+
+async function resolveClasses(hostname) {
+  const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (host === 'localhost' || host.endsWith('.localhost') || host === 'metadata.google.internal' || host.endsWith('.local')) {
+    if (host === 'metadata.google.internal' || host.endsWith('.local')) return ['blocked'];
+    return ['loopback'];
+  }
+  if (/^\d+$/.test(host)) return ['blocked'];
+  if (net.isIP(host)) return [addressClass(host)];
+  let records;
+  try {
+    records = await dns.lookup(host, { all: true, verbatim: true });
+  } catch {
+    throw new HttpError(400, 'Alamat server WhatsApp tidak dapat ditemukan.');
+  }
+  if (!records.length) throw new HttpError(400, 'Alamat server WhatsApp tidak dapat ditemukan.');
+  return records.map((r) => addressClass(r.address));
+}
+
+// resolveHost boleh diganti pada tes. Nama domain yang mengarah ke IP internal ditolak;
+// IP loopback atau LAN yang ditulis langsung tetap boleh (gateway WhatsApp di klinik).
+export async function cleanUrl(raw, resolveHost = resolveClasses) {
   let u;
   try { u = new URL(String(raw || '').trim()); } catch { throw new HttpError(400, 'Alamat server WhatsApp tidak valid. Contoh: https://wa.klinikanda.id'); }
   if (!/^https?:$/.test(u.protocol) || !u.hostname || u.username || u.password || u.search || u.hash) {
     throw new HttpError(400, 'Alamat server WhatsApp harus berbentuk https://... tanpa tambahan apa pun di belakangnya.');
   }
-  if (u.hostname.startsWith('169.254.')) throw new HttpError(400, 'Alamat ini tidak diizinkan.');
-  if (u.protocol === 'http:' && !privateHost(u.hostname)) {
+  const written = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)/i.exec(String(raw || '').trim());
+  const writtenHost = (written ? written[1] : '').replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
+  if (/^\d+$/.test(writtenHost) || /^0x[0-9a-f.]+$/i.test(writtenHost)) {
+    throw new HttpError(400, 'Alamat ini tidak diizinkan.');
+  }
+  if (u.protocol === 'http:' && !literalLocalName(u.hostname)) {
     throw new HttpError(400, 'Gunakan alamat https:// agar kunci akses tidak terkirim tanpa enkripsi. (http:// hanya boleh untuk server yang sama, mis. http://127.0.0.1:8080)');
+  }
+  const classes = await resolveHost(u.hostname);
+  if (classes.some((c) => c === 'blocked')) throw new HttpError(400, 'Alamat ini tidak diizinkan.');
+  if (classes.some((c) => c === 'loopback' || c === 'private') && !literalLocalName(u.hostname)) {
+    throw new HttpError(400, 'Nama domain yang mengarah ke jaringan internal tidak diizinkan.');
   }
   return `${u.origin}${u.pathname}`.replace(/\/+$/, '');
 }
@@ -152,7 +221,7 @@ export async function connect({ code, url, key }) {
   const finalKey = parsed.key || String(key || '').trim();
   if (!finalKey) throw new HttpError(400, 'Tempel kode sambungan dari WhatsApp.');
   if (!parsed.key && !/^amk_[A-Za-z0-9]{4,16}\.[A-Za-z0-9_-]{16,}$/.test(finalKey)) throw new HttpError(400, 'Kunci akses tidak dikenali. Salin ulang dari WhatsApp.');
-  const finalUrl = cleanUrl(String(url || '').trim() || parsed.url);
+  const finalUrl = await cleanUrl(String(url || '').trim() || parsed.url);
   const info = await ping({ url: finalUrl, key: finalKey });
   const missing = missingOf(info.scopes);
   if (missing.length) throw new HttpError(400, `Kunci ini belum boleh ${missingText(missing)}. Minta admin WhatsApp memberi izin itu, atau buat kunci baru.`);

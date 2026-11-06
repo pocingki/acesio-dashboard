@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
   status INTEGER NOT NULL,
   body TEXT NOT NULL,
   created_at INTEGER NOT NULL,
+  fingerprint TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (user_id, key)
 );
 `;
@@ -204,6 +205,9 @@ if (db.prepare('PRAGMA user_version').get().user_version < SCHEMA_VERSION) {
 } else {
   db.exec(AUDIT_SCHEMA);
   db.exec(AUDIT_INDEXES);
+}
+if (!db.prepare("SELECT 1 FROM pragma_table_info('idempotency_keys') WHERE name = 'fingerprint'").get()) {
+  db.exec("ALTER TABLE idempotency_keys ADD COLUMN fingerprint TEXT NOT NULL DEFAULT ''");
 }
 
 // Profil akun: data diri dan foto. Hanya menambah kolom yang belum ada (aman dijalankan berulang).

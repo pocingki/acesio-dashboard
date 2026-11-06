@@ -8,7 +8,7 @@ import { enqueueVisit } from './integration.js';
 const nowIso = () => new Date().toISOString();
 
 // Satu-satunya jalur pembuatan record. Semua pengecekan dan INSERT ada di satu transaksi
-// (ikut transaksi luar bila dipanggil dari withIdempotency). Mengembalikan { count, batch }.
+// (ikut transaksi luar bila dipanggil dari withIdempotency). Mengembalikan { count, batch, ids }.
 // batch boleh diberikan pemanggil (alur jadwal menyimpannya ke schedules.batch); bila kosong dibuat UUID baru.
 // fromSchedule: penyelesaian tugas (approve staf, atau SOAP pada alur lama). Ketepatan waktu
 // (day_reviews) tidak boleh menahan komisi tugas itu. Jalur lain, termasuk bot, tetap terkunci.
@@ -32,13 +32,15 @@ export function createRecords({ userId, customer, serviceIds, source, note, batc
     const ins = db.prepare('INSERT INTO records (user_id, customer_id, service_id, commission, source, created_at, day, note, batch) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const when = nowIso();
     const batch = givenBatch || crypto.randomUUID();
+    const ids = [];
     for (const id of serviceIds) {
       if (!svc.get(id)) throw new HttpError(400, 'Ada layanan yang tidak ditemukan');
-      ins.run(userId, customer.id, id, price.get(userId, id)?.amount ?? 0, source, when, day, String(note || ''), batch);
+      const info = ins.run(userId, customer.id, id, price.get(userId, id)?.amount ?? 0, source, when, day, String(note || ''), batch);
+      ids.push(Number(info.lastInsertRowid));
     }
     // Antrean ke WhatsApp ikut transaksi ini; tidak pernah melempar error dan tidak menunggu jaringan.
     enqueueVisit({ customer, serviceIds, day });
-    return { count: serviceIds.length, batch };
+    return { count: serviceIds.length, batch, ids };
   });
 }
 

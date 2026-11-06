@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { VALID_SOAP } from './helpers.mjs';
+import { VALID_SOAP, removeDir, waitExit } from './helpers.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TZ = 'Asia/Jakarta';
@@ -93,10 +93,11 @@ before(async () => {
   for (const u of ['ua', 'ub', 'uc', 'adm', 'sv']) await login(u);
 });
 
-after(() => {
+after(async () => {
   try { sdb?.close(); } catch { /* */ }
   proc?.kill();
-  if (dataDir) fs.rmSync(dataDir, { recursive: true, force: true });
+  await waitExit(proc);
+  await removeDir(dataDir);
 });
 
 const auditRows = (action) => sdb.prepare('SELECT * FROM audit_log WHERE action = ?').all(action);
@@ -334,7 +335,7 @@ test('migrasi DB versi 3 -> 4: tabel & indeks baru ada, data lama utuh, idempote
     for (const t of ['audit_log', 'idempotency_keys']) assert.ok(a.tables.includes(t), t);
     for (const i of ['idx_audit_at', 'idx_audit_action']) assert.ok(a.indexes.includes(i), i);
     assert.deepEqual(a.auditCols, ['id', 'at', 'actor_id', 'actor_name', 'action', 'target_type', 'target_id', 'detail', 'ip']);
-    assert.deepEqual(a.idemCols, ['user_id', 'key', 'status', 'body', 'created_at']);
+    assert.deepEqual(a.idemCols, ['user_id', 'key', 'status', 'body', 'created_at', 'fingerprint']);
     assert.deepEqual(a.users, ['lama']);
     assert.deepEqual(a.customers, [{ rm_no: 'RM-9', name: 'Cust Lama' }]);
     assert.deepEqual(a.records.map((r) => r.commission), [1234, 4321]);

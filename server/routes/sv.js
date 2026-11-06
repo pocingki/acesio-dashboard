@@ -2,7 +2,7 @@
 // Setiap perubahan data di sini dicatat lewat logAudit DI DALAM transaksi yang sama,
 // jadi perubahan dan jejaknya berhasil atau gagal bersama.
 import { db, tx, activeServiceCount, SERVICE_MAX } from '../db.js';
-import { hashPassword, destroyUserSessions, clientIp } from '../auth.js';
+import { hashPassword, destroyUserSessions, clientIp, assertPassword } from '../auth.js';
 import { logAudit } from '../audit.js';
 import { enrichAuditRows } from '../auditview.js';
 import { HttpError, cleanName, likePattern, isYmd, saveDataUrlImage, removeUpload } from '../util.js';
@@ -254,7 +254,7 @@ add('POST', '/api/sv/accounts', 'sv', async ({ req, user, body }) => {
   const employment = body.employment === undefined ? 'tetap' : body.employment;
   if (!/^[a-zA-Z0-9._-]{3,32}$/.test(username)) throw new HttpError(400, 'Username 3–32 karakter: huruf, angka, titik, strip');
   if (!name) throw new HttpError(400, 'Nama minimal 2 huruf');
-  if (password.length < 8) throw new HttpError(400, 'Password minimal 8 karakter');
+  assertPassword(password);
   if (!ROLES.includes(role)) throw new HttpError(400, 'Jenis akun tidak valid');
   if (!EMPLOYMENT.includes(employment)) throw new HttpError(400, 'Status kerja tidak valid');
   const { job_title: jobTitle, join_date: joinDate } = jobFields(body);
@@ -277,7 +277,7 @@ add('PATCH', '/api/sv/accounts/:id', 'sv', async ({ req, params, body, user }) =
   const changePassword = body.password !== undefined && body.password !== '';
   let hash = null;
   if (changePassword) {
-    if (String(body.password).length < 8) throw new HttpError(400, 'Password minimal 8 karakter');
+    assertPassword(body.password);
     hash = await hashPassword(String(body.password));
   }
 

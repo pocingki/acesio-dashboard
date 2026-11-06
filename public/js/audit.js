@@ -136,12 +136,12 @@ export function auditView(main, ctx = NO_CTX) {
             const [label, tone] = ACTION_LABEL[r.action] || [String(r.action || '–'), ''];
             const sum = rowSummary(r);
             return h('tr', null,
-              h('td', { class: 'nowrap' }, r.at ? fmtDate(r.at) : '–'),
-              h('td', null, h('b', null, clean(r.actor_name || '–'))),
-              h('td', null, h('span', { class: `pill${tone ? ` pill--${tone}` : ''}`, title: clean(r.action || '') }, clean(label))),
-              h('td', { class: 'nowrap' }, clean(targetText(r))),
-              h('td', { class: 'audit-sum', title: sum }, sum || h('span', { class: 'muted' }, '–')),
-              h('td', null, h('button', { class: 'btn btn--ghost btn--sm', type: 'button', 'aria-label': `Lihat rincian ${label} oleh ${clean(r.actor_name || 'pelaku')}`, onclick: () => openDetail(r) }, 'Rincian')));
+              h('td', { class: 'nowrap', 'data-label': 'Waktu' }, r.at ? fmtDate(r.at) : '–'),
+              h('td', { 'data-label': 'Pelaku' }, h('b', null, clean(r.actor_name || '–'))),
+              h('td', { 'data-label': 'Aksi' }, h('span', { class: `pill${tone ? ` pill--${tone}` : ''}`, title: clean(r.action || '') }, clean(label))),
+              h('td', { class: 'nowrap', 'data-label': 'Sasaran' }, clean(targetText(r))),
+              h('td', { class: 'audit-sum', title: sum, 'data-label': 'Ringkasan' }, sum || h('span', { class: 'muted' }, '–')),
+              h('td', { 'data-label': 'Rincian' }, h('button', { class: 'btn btn--ghost btn--sm', type: 'button', 'aria-label': `Lihat rincian ${label} oleh ${clean(r.actor_name || 'pelaku')}`, onclick: () => openDetail(r) }, 'Rincian')));
           }))), 'Tabel log audit')
         : h('div', { class: 'table-wrap' }, emptyState(filtered ? 'Tidak ada catatan yang cocok' : 'Log audit masih kosong', filtered ? 'Ubah kata kunci atau filter aksi.' : 'Aksi penting seperti hapus data dan ubah approve akan tercatat di sini.')));
       pager.replaceChildren(...pagerNodes({ page, pages, onPage: (n) => { page = n; load(); } }));

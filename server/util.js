@@ -64,3 +64,18 @@ export function removeUpload(url) {
   const file = path.basename(url);
   fs.rm(path.join(uploadDir, file), { force: true }, () => {});
 }
+
+// Foto tidak dilindungi dengan nama yang sulit ditebak. Pemanggil sudah memastikan ada sesi.
+// Foto profil (usr{id}-…) hanya pemilik atau staf. Foto layanan (svc…) untuk siapa pun yang login.
+// Berkas lama yang tidak mengikuti pola itu hanya untuk admin dan supervisor.
+export function canReadUpload(user, rel) {
+  if (!user || !['user', 'admin', 'supervisor'].includes(user.role)) return false;
+  const base = path.basename(String(rel || ''));
+  if (!base || base === '.' || base === '..' || base.includes('\0')) return false;
+  const profile = /^usr(\d+)-/.exec(base);
+  if (profile) {
+    return user.id === Number(profile[1]) || user.role === 'admin' || user.role === 'supervisor';
+  }
+  if (/^svc(?:new|\d+)-/.test(base)) return true;
+  return user.role === 'admin' || user.role === 'supervisor';
+}

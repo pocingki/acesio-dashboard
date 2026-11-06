@@ -185,11 +185,11 @@ function reportView(main, user, ctx) {
             sv ? h('th', { class: 'num' }, 'Total komisi') : null, h('th', { class: 'num' }, 'Terlambat (hari)'))),
           h('tbody', null, users.map((u) => {
             const tr = h('tr', { class: 'is-link', tabindex: '0', role: 'button', 'aria-label': `Lihat detail ${u.name}` },
-              h('td', null, h('b', null, u.name), ' ', u.active ? null : h('span', { class: 'pill pill--off' }, 'Nonaktif'), h('small', null, `@${u.username}`)),
-              h('td', { class: 'num' }, fmtNum(u.total_customers)),
-              h('td', { class: 'num' }, fmtNum(u.total_services)),
-              sv ? h('td', { class: 'num' }, fmtRp(u.total_commission)) : null,
-              h('td', { class: 'num' }, fmtNum(u.late_days)));
+              h('td', { 'data-label': 'Nama user' }, h('b', null, u.name), ' ', u.active ? null : h('span', { class: 'pill pill--off' }, 'Nonaktif'), h('small', null, `@${u.username}`)),
+              h('td', { class: 'num', 'data-label': 'Total customer' }, fmtNum(u.total_customers)),
+              h('td', { class: 'num', 'data-label': 'Total pelayanan' }, fmtNum(u.total_services)),
+              sv ? h('td', { class: 'num', 'data-label': 'Total komisi' }, fmtRp(u.total_commission)) : null,
+              h('td', { class: 'num', 'data-label': 'Terlambat (hari)' }, fmtNum(u.late_days)));
             const open = () => openUserDetail(u, user, { period, checkRange, onChanged: loadAll, ctx });
             tr.addEventListener('click', open);
             tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
@@ -220,11 +220,11 @@ function reportView(main, user, ctx) {
           h('thead', null, h('tr', null, h('th', null, 'Tanggal'), h('th', null, 'User'), h('th', { class: 'num' }, 'Customer'), h('th', { class: 'num' }, 'Pelayanan'), h('th', null, 'Status'))),
           h('tbody', null, rows.map((r) => {
             const tr = h('tr', { class: 'is-link', tabindex: '0', role: 'button', 'aria-label': `Buka data ${r.user_name} tanggal ${r.day}` },
-              h('td', { class: 'nowrap' }, fmtDay(r.day)),
-              h('td', null, h('b', null, r.user_name)),
-              h('td', { class: 'num' }, fmtNum(r.customers)),
-              h('td', { class: 'num' }, fmtNum(r.services)),
-              h('td', null, statusPill(r.late, r.day < today), r.reviewed_by ? h('small', null, `oleh ${r.reviewed_by}`) : null));
+              h('td', { class: 'nowrap', 'data-label': 'Tanggal' }, fmtDay(r.day)),
+              h('td', { 'data-label': 'User' }, h('b', null, r.user_name)),
+              h('td', { class: 'num', 'data-label': 'Customer' }, fmtNum(r.customers)),
+              h('td', { class: 'num', 'data-label': 'Pelayanan' }, fmtNum(r.services)),
+              h('td', { 'data-label': 'Status' }, statusPill(r.late, r.day < today), r.reviewed_by ? h('small', null, `oleh ${r.reviewed_by}`) : null));
             const open = () => openUserDetail({ id: r.user_id, name: r.user_name }, user, { day: r.day, period, checkRange, onChanged: loadAll, ctx });
             tr.addEventListener('click', open);
             tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
@@ -607,10 +607,10 @@ async function commissionView(box, ctx) {
         ? tableWrap(h('table', null,
           h('thead', null, h('tr', null, h('th', null, 'Nama user'), h('th', null, 'Status kerja'), h('th', { class: 'num' }, 'Komisi terisi'), h('th', null, h('span', { class: 'sr-only' }, 'Aksi')))),
           h('tbody', null, users.map((u) => h('tr', null,
-            h('td', null, h('b', null, u.name), ' ', u.active ? null : h('span', { class: 'pill pill--off' }, 'Nonaktif'), h('small', null, `@${u.username}`)),
-            h('td', null, empPill(u.employment)),
-            h('td', { class: 'num' }, u.filled === 0 ? h('span', { class: 'pill pill--wait' }, 'Belum diisi') : `${u.filled} dari ${total} layanan`),
-            h('td', null, h('div', { class: 'row-actions' }, h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => openCommissionEditor(u, users, load, ctx) }, 'Atur komisi'))))))), 'Tabel komisi per user')
+            h('td', { 'data-label': 'Nama user' }, h('b', null, u.name), ' ', u.active ? null : h('span', { class: 'pill pill--off' }, 'Nonaktif'), h('small', null, `@${u.username}`)),
+            h('td', { 'data-label': 'Status kerja' }, empPill(u.employment)),
+            h('td', { class: 'num', 'data-label': 'Komisi terisi' }, u.filled === 0 ? h('span', { class: 'pill pill--wait' }, 'Belum diisi') : `${u.filled} dari ${total} layanan`),
+            h('td', { 'data-label': 'Aksi' }, h('div', { class: 'row-actions' }, h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => openCommissionEditor(u, users, load, ctx) }, 'Atur komisi'))))))), 'Tabel komisi per user')
         : h('div', { class: 'table-wrap' }, emptyState('Belum ada user', 'Buat akun user di tab Akun User dulu.')));
     } catch (e) {
       if (!req.ok() || isAbort(e)) return;
@@ -787,14 +787,14 @@ function accountsView(main, me, ctx) {
       box.replaceChildren(tableWrap(h('table', null,
         h('thead', null, h('tr', null, ['Nama', 'Username', 'Jenis akun', 'Jabatan', 'Tgl bergabung', 'Status kerja', 'Status', ''].map((t) => h('th', null, t || h('span', { class: 'sr-only' }, 'Aksi'))))),
         h('tbody', null, accounts.map((a) => h('tr', null,
-          h('td', null, h('b', null, a.name)),
-          h('td', null, a.username),
-          h('td', null, ROLE_LABEL[a.role]),
-          h('td', null, a.job_title || h('span', { class: 'muted' }, '–')),
-          h('td', { class: 'nowrap' }, a.join_date ? fmtDay(a.join_date) : h('span', { class: 'muted' }, '–')),
-          h('td', null, a.role === 'user' ? empPill(a.employment) : h('span', { class: 'muted' }, '–')),
-          h('td', null, h('span', { class: `pill${a.active ? '' : ' pill--off'}` }, a.active ? 'Aktif' : 'Nonaktif')),
-          h('td', null, h('div', { class: 'row-actions' },
+          h('td', { 'data-label': 'Nama' }, h('b', null, a.name)),
+          h('td', { 'data-label': 'Username' }, a.username),
+          h('td', { 'data-label': 'Jenis akun' }, ROLE_LABEL[a.role]),
+          h('td', { 'data-label': 'Jabatan' }, a.job_title || h('span', { class: 'muted' }, '–')),
+          h('td', { class: 'nowrap', 'data-label': 'Tgl bergabung' }, a.join_date ? fmtDay(a.join_date) : h('span', { class: 'muted' }, '–')),
+          h('td', { 'data-label': 'Status kerja' }, a.role === 'user' ? empPill(a.employment) : h('span', { class: 'muted' }, '–')),
+          h('td', { 'data-label': 'Status' }, h('span', { class: `pill${a.active ? '' : ' pill--off'}` }, a.active ? 'Aktif' : 'Nonaktif')),
+          h('td', { 'data-label': 'Aksi' }, h('div', { class: 'row-actions' },
             h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => openAccountEditor(a, load, me) }, 'Ubah'),
             a.role !== 'supervisor' && a.id !== me.id
               ? h('button', { class: 'btn btn--danger btn--sm', type: 'button', 'aria-label': `Hapus akun ${a.name}`, onclick: () => deleteAccount(a, load) }, 'Hapus')

@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import { db, tx, activeServiceCount } from './db.js';
 import { HttpError, isYmd, likePattern } from './util.js';
 import { ymd, now } from './clock.js';
@@ -6,6 +5,7 @@ import { logAudit } from './audit.js';
 import { createNotification, NOTIFICATION_TYPES as NT } from './notifications.js';
 import { resolveCustomer, ints } from './routes/helpers.js';
 import { createRecords } from './records.js';
+import { requestFingerprint, withIdempotency } from './idempotency.js';
 
 // Logika bisnis jadwal (tanpa HTTP). Dipakai rute staff (Fase 3) dan alur user (Fase 4).
 // Isi catatan (note) dan SOAP tidak pernah masuk log audit.
@@ -325,16 +325,56 @@ export function approveSchedule(id, actor, ip = '') {
   });
 }
 
-// Mencatat layanan (komisi dari pengaturan user) dan menandai jadwal Selesai. Dipakai approve dan alur lama.
-// soap (opsional): bila diberikan, ditulis bersama; bila tidak, SOAP yang sudah tersimpan dipakai apa adanya.
-function finishSchedule(row, { approvedBy = null, soap = null } = {}) {
-  const serviceIds = db.prepare(`SELECT ss.service_id FROM schedule_services ss JOIN services sv ON sv.id = ss.service_id
-    WHERE ss.schedule_id = ? ORDER BY sv.position`).all(row.id).map((r) => r.service_id);
+export function scheduleClaimKey(scheduleId) {
+  return `schedule-${Number(scheduleId)}`;
+}
+
+function scheduleServiceIds(scheduleId) {
+  return db.prepare(`SELECT ss.service_id FROM schedule_services ss JOIN services sv ON sv.id = ss.service_id
+    WHERE ss.schedule_id = ? ORDER BY sv.position`).all(scheduleId).map((r) => r.service_id);
+}
+
+// Satu komisi per jadwal, baik yang mencatat bot maupun penyelesaian tugas.
+// Pengiriman ulang memakai kunci yang sama dan mengembalikan id record yang sudah ada.
+function claimScheduleRecords(row, source) {
+  const serviceIds = scheduleServiceIds(row.id);
   if (!serviceIds.length) throw new HttpError(409, 'Jadwal ini tidak punya layanan. Hubungi admin.', 'SCHEDULE_STATE');
   const customer = { id: row.customer_id, rm_no: row.customer_rm, name: row.customer_name, phone: row.customer_phone };
-  const { count, batch } = createRecords({
-    userId: row.user_id, customer, serviceIds, source: 'web', note: '', batch: crypto.randomUUID(), fromSchedule: true,
+  const fingerprint = requestFingerprint({
+    schedule_id: row.id,
+    customer_id: row.customer_id,
+    service_ids: [...serviceIds].sort((a, b) => a - b),
   });
+  const claimed = withIdempotency(row.user_id, scheduleClaimKey(row.id), () => {
+    const { count, batch, ids } = createRecords({
+      userId: row.user_id, customer, serviceIds, source, note: '', fromSchedule: true,
+    });
+    return { status: 200, body: { count, batch, record_ids: ids } };
+  }, fingerprint);
+  return { ...claimed.body, customer, replayed: claimed.replayed };
+}
+
+// Bot mengaitkan aktivitas ke jadwal yang sama. Tanpa schedule_id, bot tetap aktivitas terpisah.
+export function recordLinkedSchedule({ userId, scheduleId, customerId, serviceIds }) {
+  const row = getScheduleRow(scheduleId);
+  if (!row || row.user_id !== Number(userId)) throw new HttpError(404, 'Jadwal tidak ditemukan');
+  if (row.status === 'batal') throw new HttpError(409, 'Jadwal ini sudah dibatalkan', 'SCHEDULE_STATE');
+  if (Number(customerId) !== row.customer_id) throw new HttpError(400, 'Customer tidak sama dengan jadwal');
+  const expected = [...scheduleServiceIds(row.id)].sort((a, b) => a - b);
+  const got = [...serviceIds].sort((a, b) => a - b);
+  if (got.length !== expected.length || got.some((n, i) => n !== expected[i])) {
+    throw new HttpError(400, 'Layanan tidak sama dengan jadwal');
+  }
+  const existing = db.prepare('SELECT 1 FROM idempotency_keys WHERE user_id = ? AND key = ?').get(row.user_id, scheduleClaimKey(row.id));
+  if (!existing && row.day !== ymd()) throw new HttpError(409, 'Jadwal hanya bisa dicatat pada tanggalnya', 'SCHEDULE_NOT_TODAY');
+  return claimScheduleRecords(row, 'bot');
+}
+
+// Mencatat layanan (komisi dari pengaturan user) dan menandai jadwal Selesai. Dipakai approve dan alur lama.
+// soap (opsional): bila diberikan, ditulis bersama; bila tidak, SOAP yang sudah tersimpan dipakai apa adanya.
+// Bila bot sudah mencatat jadwal ini, komisi tidak dibuat lagi; status tetap menjadi Selesai.
+function finishSchedule(row, { approvedBy = null, soap = null } = {}) {
+  const { count, batch, customer } = claimScheduleRecords(row, 'web');
   const stamp = now().toISOString();
   db.prepare(`UPDATE schedules SET status = 'selesai', completed_at = ?, started_at = CASE WHEN started_at = '' THEN ? ELSE started_at END,
     batch = ?, soap_s = COALESCE(?, soap_s), soap_o = COALESCE(?, soap_o), soap_a = COALESCE(?, soap_a), soap_p = COALESCE(?, soap_p),

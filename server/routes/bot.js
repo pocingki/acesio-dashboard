@@ -5,7 +5,8 @@ import { db } from '../db.js';
 import { clientIp } from '../auth.js';
 import { createLimiter } from '../ratelimit.js';
 import { createRecords } from '../records.js';
-import { withIdempotency } from '../idempotency.js';
+import { requestFingerprint, withIdempotency } from '../idempotency.js';
+import { recordLinkedSchedule } from '../schedules.js';
 import { HttpError, normalizePhone, likePattern } from '../util.js';
 import { ints } from './helpers.js';
 import { add } from './index.js';
@@ -71,7 +72,7 @@ const botCustomer = (c) => {
 };
 
 const KEY_RX = /^[A-Za-z0-9_-]{8,100}$/;
-// Kunci idempotensi: body.request_id atau header Idempotency-Key (kalau dua-duanya ada, harus sama).
+// Kunci idempotensi wajib: body.request_id atau header Idempotency-Key (kalau dua-duanya ada, harus sama).
 function requestKey(req, body) {
   const raw = body.request_id;
   if (raw !== undefined && raw !== null && typeof raw !== 'string') throw new HttpError(400, 'request_id harus berupa teks');
@@ -79,8 +80,30 @@ function requestKey(req, body) {
   const fromHeader = String(req.headers['idempotency-key'] || '').trim();
   if (fromBody && fromHeader && fromBody !== fromHeader) throw new HttpError(400, 'request_id dan header Idempotency-Key harus sama');
   const key = fromBody || fromHeader;
-  if (key && !KEY_RX.test(key)) throw new HttpError(400, 'request_id / Idempotency-Key harus 8–100 karakter: huruf, angka, strip, garis bawah');
+  if (!key) throw new HttpError(400, 'request_id wajib (8–100 karakter) supaya pengiriman ulang tidak menggandakan komisi', 'REQUEST_ID_REQUIRED');
+  if (!KEY_RX.test(key)) throw new HttpError(400, 'request_id / Idempotency-Key harus 8–100 karakter: huruf, angka, strip, garis bawah');
   return key;
+}
+
+function readScheduleId(body) {
+  if (body.schedule_id === undefined || body.schedule_id === null || body.schedule_id === '') return null;
+  const n = Number(body.schedule_id);
+  if (!Number.isInteger(n) || n < 1) throw new HttpError(400, 'schedule_id tidak valid');
+  return n;
+}
+
+function botFingerprint(userId, body) {
+  const ids = Array.isArray(body.service_ids) ? body.service_ids.map(Number) : body.service_ids;
+  const serviceIds = Array.isArray(ids) && ids.every((n) => Number.isInteger(n)) ? [...ids].sort((a, b) => a - b) : ids;
+  const scheduleRaw = body.schedule_id;
+  const scheduleId = scheduleRaw === undefined || scheduleRaw === null || scheduleRaw === '' ? null : Number(scheduleRaw);
+  return requestFingerprint({
+    user_id: userId,
+    customer_id: body.customer_id == null || body.customer_id === '' ? null : Number(body.customer_id),
+    customer_rm: String(body.customer_rm || '').trim(),
+    service_ids: serviceIds,
+    schedule_id: Number.isInteger(scheduleId) ? scheduleId : (scheduleRaw ?? null),
+  });
 }
 
 // createRecords boleh mengembalikan angka (lama) atau objek {count, ids}; id dicari dari DB bila tidak dikembalikan.
@@ -121,20 +144,27 @@ add('POST', '/api/bot/records', 'bot', bot(({ req, res, body }) => {
   const u = db.prepare("SELECT id FROM users WHERE username = ? AND role = 'user' AND active = 1").get(String(body.username || ''));
   if (!u) throw new HttpError(400, 'username petugas tidak ditemukan');
   const key = requestKey(req, body);
+  const fingerprint = botFingerprint(u.id, body);
 
   // run() HARUS sinkron: withIdempotency menyimpan hasil pemanggilan langsung (Promise akan tersimpan sebagai {}).
   // Seluruh validasi ada di dalam run(): permintaan ulang dengan key sama mendapat respons semula.
+  // Kegagalan di dalam run membatalkan kunci, jadi percobaan berikutnya dengan ID yang sama masih bisa berhasil.
   const run = () => {
     const serviceIds = ints(body.service_ids);
     if (!serviceIds) throw new HttpError(400, 'service_ids wajib berisi daftar id layanan');
     const customer = resolveCustomer(body);
+    const scheduleId = readScheduleId(body);
+    if (scheduleId) {
+      const claimed = recordLinkedSchedule({ userId: u.id, scheduleId, customerId: customer.id, serviceIds });
+      return { status: 200, body: { ok: true, count: claimed.count, record_ids: claimed.record_ids, customer } };
+    }
     const result = createRecords({ userId: u.id, customer, serviceIds, source: 'bot', note: '' });
     const count = typeof result === 'number' ? result : result?.count ?? serviceIds.length;
     const recordIds = recordIdsFrom(result, u.id, customer.id, count);
     return { status: 200, body: { ok: true, count, record_ids: recordIds, customer } };
   };
 
-  const out = key ? withIdempotency(u.id, key, run) : run();
+  const out = withIdempotency(u.id, key, run, fingerprint);
   if (out.replayed) res.setHeader('Idempotent-Replay', 'true');
   return out.body;
 }));

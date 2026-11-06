@@ -40,6 +40,8 @@
   .hstat { min-height: 128px; padding: 14px; }
   .hstat__num { font-size: 34px; }
   .hsched { padding: 16px 14px; }
+  .hsched__head { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .hlink { min-height: 44px; display: inline-flex; align-items: center; }
   .hitem { flex-direction: column; align-items: stretch; gap: 12px; }
   .hitem__action .btn { width: 100%; }
 }
@@ -55,7 +57,7 @@
   .tabs:has(.tab:nth-child(4)):not(:has(.tab:nth-child(5))) .tab {
     padding: 4px;
     height: auto;
-    min-height: 40px;
+    min-height: 44px;
     justify-content: center;
     font-size: .8125rem;
     line-height: 1.2;

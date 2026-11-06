@@ -24,7 +24,7 @@ Data contoh: `npm run seed:demo` membuat user demo (sari, budi, dewi) dengan **p
 | Variabel | Default | Keterangan |
 |---|---|---|
 | `PORT` | `3000` | `0` = port acak; port sebenarnya dicetak di stdout |
-| `HOST` | `0.0.0.0` | Di belakang reverse proxy, isi `127.0.0.1` |
+| `HOST` | `127.0.0.1` | Hanya komputer ini. Akses dari luar lewat reverse proxy HTTPS. `NODE_ENV=production` menolak alamat lain |
 | `DATA_DIR` | `./data` | Berisi `acesio.db` dan `uploads/` |
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | `admin`, acak | Akun supervisor pertama |
 | `BOT_API_KEY` | kosong | Kosong = endpoint `/api/bot/*` nonaktif (503) |
@@ -34,8 +34,8 @@ Data contoh: `npm run seed:demo` membuat user demo (sari, budi, dewi) dengan **p
 | `APP_FAKE_NOW_FILE` | kosong | **Khusus tes.** Hanya dibaca bila `NODE_ENV=test`; berisi waktu palsu (ISO) untuk menguji jam akses. **Jangan dipakai di produksi** |
 | `SESSION_MINUTES` | `60` | Durasi hitung mundur (menit) bila jadwal **tanpa jam selesai**. Bila jam selesai diisi, durasi = jam selesai − jam mulai |
 | `SESSION_TIMER` | menyala | `off` mematikan alur hitung mundur dan approve (perilaku lama: Mulai, isi SOAP, langsung Selesai). Untuk tes; jangan dipakai di produksi |
-| `COOKIE_SECURE` | `false` | `true` di produksi (HTTPS) |
-| `TRUST_PROXY` | `false` | `true` hanya bila di belakang reverse proxy tepercaya; lihat bagian Keamanan |
+| `COOKIE_SECURE` | `false` | `true` wajib di produksi. Cookie selalu `HttpOnly` dan `SameSite=Lax`; `Secure` ikut nilai ini atau HTTPS dari proxy |
+| `TRUST_PROXY` | `false` | `true` wajib di produksi, dan hanya bila port aplikasi tidak bisa dijangkau selain lewat reverse proxy. Batas login memakai IP klien |
 | `BACKUP_DIR` | `./backups` | Hanya dibaca `scripts/backup.js` |
 | `KEYWORDS_FILE` | `./config/keywords.json` | Berkas kata kunci bersama bot WA; dashboard hanya membaca `platforms`, `referralCodes`, `defaultPlatform` |
 
@@ -166,7 +166,7 @@ Kode error baru: `SCHEDULE_REQUIRED`, `SOAP_REQUIRED`, `SCHEDULE_NOT_TODAY`, `SC
 
 ### Idempotency-Key (anti data ganda)
 
-`POST /api/records` menerima header `Idempotency-Key` (8–100 karakter `A-Za-z0-9_-`). Permintaan ulang dengan key yang sama **tidak membuat data baru**: server mengembalikan respons semula dengan header `Idempotent-Replay: true`. Key disimpan 24 jam per user. Tanpa header, pengiriman ulang untuk jadwal yang sudah Selesai ditolak 409 `SCHEDULE_STATE`; klien yang bisa mengulang kiriman (aplikasi web, bot) sebaiknya tetap selalu mengirim key supaya jawabannya sama dengan yang pertama.
+`POST /api/records` menerima header `Idempotency-Key` (8–100 karakter `A-Za-z0-9_-`). Permintaan ulang dengan key yang sama **tidak membuat data baru**: server mengembalikan respons semula dengan header `Idempotent-Replay: true`. Key yang sama dengan isi SOAP atau jadwal yang berbeda ditolak 409 `IDEMPOTENCY_CONFLICT`. Key disimpan 24 jam per user. Tanpa header, pengiriman ulang untuk jadwal yang sudah Selesai ditolak 409 `SCHEDULE_STATE`; klien yang bisa mengulang kiriman (aplikasi web, bot) sebaiknya tetap selalu mengirim key supaya jawabannya sama dengan yang pertama.
 
 ## Integrasi WA bot
 
@@ -188,7 +188,7 @@ curl -X POST -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
   -d '{"username":"budi","customer_rm":"RM-001","service_ids":[1,3],"request_id":"wa-msg-8f31c2a9"}'
 ```
 
-Idempotensi bot memakai `request_id` di body, atau header `Idempotency-Key` yang sama dengan endpoint web. Data bot ditandai "via WA bot" di laporan. Bot **tidak membuat customer baru**: No RM tidak ada = 404. Jalur bot tidak memakai jadwal atau SOAP dan tidak terpengaruh jam akses user. Input ditolak (409) bila hari itu sudah di-approve.
+`request_id` (atau header `Idempotency-Key` yang sama) **wajib**. Pengiriman ulang, webhook ganda, atau dua permintaan bersamaan dengan ID yang sama mengembalikan hasil pertama dan tidak menambah layanan atau komisi. ID yang sama dengan isi berbeda ditolak 409 `IDEMPOTENCY_CONFLICT`. Tambahkan `schedule_id` bila aktivitas itu jadwal yang sama: komisi dicatat sekali, baik yang masuk lebih dulu bot maupun penyelesaian tugas. Tanpa `schedule_id`, tiap `request_id` adalah aktivitas terpisah. Data bot ditandai "via WA bot" di laporan. Bot **tidak membuat customer baru**: No RM tidak ada = 404. Jalur bot tidak memakai SOAP dan tidak terpengaruh jam akses user. Input tanpa `schedule_id` ditolak (409) bila hari itu sudah di-approve.
 
 ## Integrasi WhatsApp (WhatsApp)
 
@@ -230,7 +230,7 @@ npm run backup -- --keep 30    # simpan 30 terbaru
 
 Memakai `VACUUM INTO`, jadi **aman saat server hidup** (bukan menyalin berkas mentah yang bisa setengah tertulis), lalu memeriksa `integrity_check` sebelum menghapus backup lama. Folder `backups/` ada di `.gitignore`.
 
-Backup database **tidak** mencakup `data/uploads/` (foto layanan). Salin folder itu terpisah. Jadwal cron dan prosedur pemulihan ada di [docs/DEPLOY.md](docs/DEPLOY.md).
+Backup database **tidak** mencakup `data/uploads/` (foto) atau `integration.key` (kunci token WhatsApp). Salin keduanya terpisah, dengan izin yang sama ketatnya. Berkas backup ditulis mode `600` bila sistemnya mendukung, dan berisi SOAP. Jadwal cron dan prosedur pemulihan ada di [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Tes
 
@@ -239,7 +239,9 @@ npm run check    # node --check untuk semua .js dan .mjs
 npm test         # node --test: seluruh test/**/*.test.mjs
 ```
 
-Tes menjalankan server asli di port acak dengan folder data sementara; tidak menyentuh `data/`. `test/regression-audit.test.mjs` berisi satu tes per temuan audit. Sisi klien diuji dengan skenario manual dan skrip Playwright mandiri (bukan bagian `npm test`): lihat [test/e2e/README.md](test/e2e/README.md). CI: `.github/workflows/test.yml` (Node 22.x).
+Tes menjalankan server asli di port acak dengan folder data sementara; tidak menyentuh `data/`. `test/regression-audit.test.mjs` berisi satu tes per temuan audit. Sisi klien diuji dengan skenario manual dan skrip Playwright mandiri (bukan bagian `npm test`): lihat [test/e2e/README.md](test/e2e/README.md). CI: `.github/workflows/test.yml` (Node 22.x). Hasil putaran terakhir: [docs/QA-FINAL.md](docs/QA-FINAL.md).
+
+Di Windows, `SIGTERM` dari luar proses tidak sampai ke handler Node (proses dihentikan paksa). Tes membedakan itu dari penutupan rapi, yang tetap dibuktikan lewat jalur yang sama dengan `systemctl stop` di Linux. Panduan peran, API, WhatsApp, dan skema: [docs/INTEGRASI.md](docs/INTEGRASI.md), [docs/SCHEMA.md](docs/SCHEMA.md), [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Struktur
 
@@ -257,6 +259,6 @@ server/
 public/               index.html, css/ (app.css + satu berkas per fitur), js/ (login, user, home, myschedule,
                       visit, notify, staff, schedules, schedule-ui, customers, charts, ui, api)
 scripts/              seed-demo.js, backup.js
-docs/DEPLOY.md        Caddy/Nginx, systemd, cron backup, rotasi key, pemulihan
+docs/                 DEPLOY.md, INTEGRASI.md, SCHEMA.md, QA-FINAL.md
 test/                 regression-audit.test.mjs, e2e/README.md, tes per area
 ```

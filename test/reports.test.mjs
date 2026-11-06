@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { removeDir, waitExit } from './helpers.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const TZ = 'Asia/Jakarta';
@@ -82,11 +83,12 @@ before(async () => {
   await login('sv', 'boss', 'rahasia-boss-1');
 });
 
-after(() => {
+after(async () => {
   proc?.removeAllListeners('exit');
-  proc?.kill();
   try { sqlite?.close(); } catch { /* sudah tertutup */ }
-  fs.rmSync(dataDir, { recursive: true, force: true });
+  proc?.kill();
+  await waitExit(proc);
+  await removeDir(dataDir);
 });
 
 // ---------- pencarian riwayat (#7) ----------

@@ -34,7 +34,7 @@ SOAP (Subjective, Objective, Assessment, Planning) berisi keluhan dan penilaian 
 - **Siapa yang boleh membaca**: hanya user pemilik jadwal (`GET /api/my/schedules/:id`; milik orang lain 404) dan admin/supervisor (`GET /api/staff/schedules/:id`). Daftar jadwal (staf maupun user) **tidak pernah memuat SOAP**; hanya penanda `has_soap`.
 - **Tidak keluar dari aplikasi**: SOAP tidak dikirim ke WhatsApp (tidak ada di payload maupun antrean `integration_outbox`) dan tidak ada di endpoint bot. Hal yang sama berlaku untuk catatan awal customer (kolom *SOAP* di tabel Customer, disimpan di `customers.medical_note`).
 - **Tidak masuk log audit**: `schedule.complete` hanya mencatat nama bagian yang terisi (`s`, `o`, `a`, `p`); isi SOAP dan catatan jadwal tidak pernah ditulis ke `audit_log`.
-- **Tersimpan apa adanya di database** (tidak dienkripsi per kolom). Perlindungannya adalah akses berkas database dan backup: batasi izin `DATA_DIR` dan `BACKUP_DIR` (lihat docs/DEPLOY.md), dan perlakukan backup `acesio.db` sebagai data klinis.
+- **Tersimpan sebagai teks di SQLite**, bukan ciphertext per kolom. Baris yang sudah ada, ekspor, dan tampilan staf membaca kolom itu langsung; mengubah formatnya akan membuat data lama tidak terbaca. Perlindungannya adalah hak akses peran di atas, ditambah izin berkas: `DATA_DIR` dan `BACKUP_DIR` hanya untuk akun layanan, backup `acesio.db` mode `600`, dan `integration.key` tidak ikut di dalam backup itu. Perlakukan backup sebagai data klinis (lihat docs/DEPLOY.md).
 - **Teks tampil lewat `textContent`**, jadi isi SOAP tidak bisa menyisipkan HTML ke halaman user maupun admin.
 - Menghapus riwayat layanan oleh user **tidak** menghapus SOAP pada jadwalnya (jadwal tetap Selesai).
 
@@ -44,7 +44,7 @@ Ini keputusan desain, bukan kelalaian. Jangan dilaporkan sebagai celah kecuali A
 
 1. **Endpoint pencarian No RM (`GET /api/customers/search`) masih terbuka untuk semua akun yang login.** Sejak input customer berbasis jadwal, antarmuka user tidak memakainya lagi (customer ditentukan admin), tetapi endpoint-nya tetap ada dan bisa dipanggil langsung. Pencarian mengembalikan hanya No RM dan nama (maksimal 8 hasil, 60 permintaan per menit per user), tidak ada nomor WA atau SOAP. Konsekuensinya, terapis yang gigih tetap bisa mengumpulkan daftar No RM + nama pelan-pelan. Pembatasan laju memperlambat, tidak mencegah.
 2. **Satu API key untuk bot** (`BOT_API_KEY`). Siapa pun yang memegang key bisa membaca customer dan mencatat layanan atas nama terapis mana pun. Tidak ada key per bot, per terapis, atau kedaluwarsa otomatis. Mitigasi: simpan key hanya di server bot, rotasi berkala (lihat docs/DEPLOY.md), dan pantau lonjakan data `source = bot`.
-3. **Foto layanan di `/uploads/` dapat dibuka tanpa login.** Isinya hanya gambar kotak layanan, bukan data customer. Jangan mengunggah foto yang berisi data pribadi.
+3. **Foto di `/uploads/` butuh sesi.** Tanpa login jawabannya 401, termasuk bila berkasnya tidak ada. Foto profil (`usr{id}-…`) hanya pemilik atau staf. Foto layanan (`svc…`) untuk akun yang sudah login. Berkas lama yang polanya tidak dikenali hanya untuk admin dan supervisor. Nama berkas tidak dianggap sebagai rahasia.
 4. **Tanpa 2FA.** Perlindungan akun bergantung pada password dan pembatasan percobaan.
 5. **Sesi berlaku `SESSION_HOURS` (default 12 jam)** dan tidak diperpanjang otomatis.
 6. **Log audit ada di database yang sama.** Siapa pun yang punya akses tulis ke berkas database bisa mengubahnya. Backup luar server menjaga salinan yang tidak bisa disentuh.

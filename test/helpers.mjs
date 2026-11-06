@@ -31,14 +31,15 @@ function buildEnv(tmp, dataDir, overrides) {
 }
 
 // startServer({ env }) -> { base, port, dataDir, stop(), login(user, pass), call(path, opts), raw(text), output() }
-export async function startServer({ env = {} } = {}) {
+export async function startServer({ env = {}, stdin = false } = {}) {
+  const options = { stdin };
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'acesio-test-'));
   const dataDir = path.join(tmp, 'data');
   // cwd = folder sementara, jadi process.loadEnvFile() tidak membaca .env milik pengembang.
   const child = spawn(process.execPath, ['--no-warnings', ENTRY], {
     cwd: tmp,
     env: buildEnv(tmp, dataDir, env),
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: [options.stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
   });
 
   let out = '';
@@ -48,7 +49,7 @@ export async function startServer({ env = {} } = {}) {
   let exitInfo = null;
   exited.then((e) => { exitInfo = e; });
 
-  const cleanup = () => fs.rmSync(tmp, { recursive: true, force: true });
+  const cleanup = () => removeDir(tmp);
 
   const port = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`Server tidak siap dalam 20 detik.\n${out}`)); }, 20_000);
@@ -58,7 +59,7 @@ export async function startServer({ env = {} } = {}) {
     };
     child.stdout.on('data', check);
     exited.then((e) => { clearTimeout(timer); reject(new Error(`Server berhenti saat start (kode ${e.code}).\n${out}`)); });
-  }).catch((err) => { cleanup(); throw err; });
+  }).catch(async (err) => { await cleanup(); throw err; });
 
   const base = `http://127.0.0.1:${port}`;
 
@@ -109,11 +110,36 @@ export async function startServer({ env = {} } = {}) {
       await exited;
       clearTimeout(kill);
     }
-    cleanup();
+    await cleanup();
     return exitInfo;
   }
 
-  return { base, port, dataDir, child, call, login, raw, stop, output: () => out };
+  return { base, port, dataDir, child, done: exited, call, login, raw, stop, output: () => out };
+}
+
+// Windows sering masih mengunci acesio.db sesaat setelah proses anak berhenti (EPERM/EBUSY).
+export async function removeDir(dir) {
+  if (!dir) return;
+  let last;
+  for (let i = 0; i < 20; i++) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      last = err;
+      if (err.code !== 'EPERM' && err.code !== 'EBUSY' && err.code !== 'ENOTEMPTY') throw err;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+  throw last;
+}
+
+export function waitExit(proc, ms = 8000) {
+  if (!proc || proc.exitCode != null || proc.signalCode != null) return Promise.resolve();
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, ms);
+    proc.once('exit', () => { clearTimeout(t); resolve(); });
+  });
 }
 
 // ---------- jadwal (Fase 4) ----------

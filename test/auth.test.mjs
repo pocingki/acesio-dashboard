@@ -146,8 +146,9 @@ test('changePassword: validasi password', async () => {
   await rejects(u.password, 'pendek', /minimal 8/);
   await rejects(u.password, 'x'.repeat(201), /maksimal 200/);
   await rejects(u.password, u.password, /tidak boleh sama/);
-  // batas tepat 200 karakter diterima
-  await changePassword(u.id, u.password, 'y'.repeat(200), 'tok');
+  await rejects(u.password, 'hurufsaja', /huruf dan angka/);
+  // batas tepat 200 karakter diterima bila ada huruf dan angka
+  await changePassword(u.id, u.password, `${'y'.repeat(199)}1`, 'tok');
 });
 
 test('changePassword: salah password lama berulang kena throttle 429', async () => {

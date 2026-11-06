@@ -1,7 +1,7 @@
 import { add, LIMITS } from './index.js';
 import { db } from '../db.js';
 import { HttpError, cleanName, saveDataUrlImage, removeUpload } from '../util.js';
-import { login, cookieHeader, destroySession, changePassword, clientIp, isSecure } from '../auth.js';
+import { login, cookieHeader, destroySession, changePassword, clientIp, isSecure, assertPassword } from '../auth.js';
 import { accessInfo } from '../clock.js';
 import { logAudit } from '../audit.js';
 
@@ -28,7 +28,7 @@ add('GET', '/api/auth/me', 'user', ({ user }) => ({ user: publicUser(user), tz: 
 
 add('POST', '/api/auth/password', 'user', async ({ req, user, body }) => {
   const next = String(body.next ?? '');
-  if (next.length < 8) throw new HttpError(400, 'Password baru minimal 8 karakter');
+  assertPassword(next, 'Password baru');
   // Melempar HttpError(400) bila password lama salah; mencabut semua sesi lain milik user ini.
   await changePassword(user.id, String(body.current ?? ''), next, user.token);
   try {

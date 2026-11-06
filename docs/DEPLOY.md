@@ -6,13 +6,15 @@ Contoh di bawah memakai Linux (Debian/Ubuntu), aplikasi di `/opt/acesio-dashboar
 
 - Aplikasi **hanya mendengarkan 127.0.0.1**; yang terbuka ke internet adalah reverse proxy (Caddy atau Nginx) dengan TLS.
 - `TRUST_PROXY=true` membuat aplikasi mempercayai `X-Forwarded-For` dan `X-Forwarded-Proto`. Itu aman **hanya** jika klien tidak bisa menyambung langsung ke port aplikasi. Kalau port 3000 terbuka ke luar sambil `TRUST_PROXY=true`, penyerang bisa memalsukan IP-nya dan menghindari pembatasan login. Karena itu `HOST=127.0.0.1` wajib, dan firewall jangan membuka port 3000.
-- `COOKIE_SECURE=true` di produksi.
+- `COOKIE_SECURE=true` di produksi. Cookie selalu `HttpOnly` dan `SameSite=Lax`.
+- `NODE_ENV=production` menolak start bila `HOST` bukan loopback, `COOKIE_SECURE` bukan `true`, `TRUST_PROXY` bukan `true`, `SESSION_TIMER=off`, atau `APP_FAKE_NOW_FILE` terisi.
 
 ## 2. Berkas lingkungan
 
 `/etc/acesio/acesio.env` (izin `600`, pemilik `acesio`):
 
 ```ini
+NODE_ENV=production
 HOST=127.0.0.1
 PORT=3000
 DATA_DIR=/var/lib/acesio
@@ -141,7 +143,9 @@ Catatan penting:
 - Backup database **tidak** menyertakan `/var/lib/acesio/uploads/` (foto layanan). Salin juga, misalnya `rsync -a /var/lib/acesio/uploads/ /var/backups/acesio-uploads/`.
 - Database (dan backup-nya) memuat **SOAP kunjungan**, yaitu data klinis. Pastikan `/var/backups/acesio` berizin `750` untuk pemilik `acesio`, dan kirim salinan luar server lewat kanal terenkripsi.
 - Backup di mesin yang sama tidak melindungi dari disk rusak. Kirim ke luar server (rsync/rclone/object storage) setiap hari.
-- Uji pemulihan minimal sekali sebelum Anda membutuhkannya.
+- Uji pemulihan minimal sekali sebelum Anda membutuhkannya. `npm test` sudah mencakup `test/backup-restore.test.mjs` (salinan saat server hidup, lalu dibuka lagi).
+- `integration.key` (kunci token WhatsApp) tidak ada di dalam berkas `.db`. Salin terpisah: `cp -a /var/lib/acesio/integration.key /var/backups/acesio/integration.key`.
+- Target layanan adalah Linux dengan systemd. Di Windows, menghentikan proses lewat TerminateProcess tidak menjalankan handler SIGTERM; itu batas sistem operasi, bukan alur aplikasi. Di server, `systemctl stop acesio` mengirim SIGTERM dan aplikasi menutup database lalu keluar 0.
 
 ## 7. Rotasi `BOT_API_KEY`
 
@@ -167,6 +171,8 @@ sudo -u acesio mv /var/lib/acesio/acesio.db* /var/lib/acesio/sebelum-pulih/ 2>/d
 # 2. Pasang backup. Berkas -wal dan -shm lama HARUS tidak ada (sudah dipindahkan di atas),
 #    kalau tidak SQLite bisa memadukan sisa transaksi lama ke database hasil pulih.
 sudo -u acesio cp /var/backups/acesio/acesio-YYYYMMDD-HHMM.db /var/lib/acesio/acesio.db
+sudo -u acesio cp -a /var/backups/acesio/integration.key /var/lib/acesio/integration.key
+sudo -u acesio rsync -a /var/backups/acesio-uploads/ /var/lib/acesio/uploads/
 
 # 3. Periksa keutuhan (sqlite3 CLI tidak wajib; pakai Node)
 sudo -u acesio node --no-warnings -e "

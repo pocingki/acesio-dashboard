@@ -7,6 +7,15 @@ import { fileURLToPath } from 'node:url';
 
 try { process.loadEnvFile(); } catch { /* .env opsional */ }
 
+const { bindHost, productionProblems } = await import('./config.js');
+const configProblems = productionProblems();
+if (configProblems.length) {
+  console.error('\n  Konfigurasi produksi tidak aman. Server tidak dijalankan.');
+  for (const line of configProblems) console.error(`  - ${line}`);
+  console.error('');
+  process.exit(1);
+}
+
 // Modul dimuat dinamis supaya .env sudah terbaca sebelum db.js dan auth.js dievaluasi.
 const { db, dataDir, uploadDir } = await import('./db.js');
 const { sessionUser, hashPassword, isSecure, destroyUserSessions, cookieHeader } = await import('./auth.js');
@@ -15,11 +24,14 @@ const { routes, loadRoutes, LIMITS } = await import('./routes/index.js');
 await loadRoutes();
 const { botKeyValid } = await import('./routes/bot.js');
 const { startWorker, stopWorker } = await import('./integration.js');
-const { HttpError } = await import('./util.js');
+const { HttpError, canReadUpload } = await import('./util.js');
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const publicDir = path.join(root, 'public');
-const HOST = process.env.HOST || '0.0.0.0';
+const HOST = bindHost();
+if (process.env.NODE_ENV !== 'production' && HOST !== '127.0.0.1' && HOST !== '::1' && HOST !== 'localhost') {
+  console.warn(`  PERINGATAN: HOST=${HOST} membuka lebih dari komputer ini. Produksi menolak pengaturan ini.`);
+}
 
 // PORT=0 berarti port acak (dipakai tes). Kosong = 3000.
 const rawPort = process.env.PORT;
@@ -299,7 +311,11 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname.startsWith('/api/')) return await handleApi(req, res, url);
     if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'Metode tidak diizinkan', undefined, { Allow: 'GET, HEAD' });
     if (url.pathname.startsWith('/uploads/')) {
-      return serveFile(req, res, uploadDir, safeDecode(url.pathname.slice(9)), 'public, max-age=86400');
+      const rel = safeDecode(url.pathname.slice('/uploads/'.length));
+      const user = sessionUser(req);
+      if (!user) throw new HttpError(401, 'Silakan login terlebih dahulu');
+      if (!canReadUpload(user, rel)) throw new HttpError(403, 'Anda tidak boleh membuka berkas ini');
+      return serveFile(req, res, uploadDir, rel, 'private, no-store');
     }
     const rel = url.pathname === '/' ? 'index.html' : safeDecode(url.pathname.slice(1));
     return serveFile(req, res, publicDir, rel, 'no-cache');
@@ -357,6 +373,15 @@ process.on('uncaughtException', (err) => console.error(`[${new Date().toISOStrin
 process.on('unhandledRejection', (reason) => console.error(`[${new Date().toISOString()}] unhandledRejection`, reason));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+// Windows tidak mengantarkan SIGTERM ke handler (TerminateProcess). Tes memakai baris ini.
+if (process.env.NODE_ENV === 'test') {
+  let buf = '';
+  process.stdin.on('data', (chunk) => {
+    buf += chunk;
+    if (buf.includes('shutdown\n')) shutdown('SIGTERM');
+  });
+  process.stdin.resume();
+}
 
 startWorker();
 console.log(`  Acesio Dashboard berjalan di http://localhost:${server.address().port}\n`);

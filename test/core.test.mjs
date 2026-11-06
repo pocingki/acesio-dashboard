@@ -124,12 +124,16 @@ describe('server inti', () => {
     assert.equal((await s.call('/api/auth/me', { method: 'HEAD' })).status, 401);
   });
 
-  test('/uploads tetap max-age, file tak ada -> 404 JSON (tanpa login)', async () => {
+  test('/uploads menolak tanpa login, termasuk berkas yang tidak ada', async () => {
     fs.writeFileSync(path.join(s.dataDir, 'uploads', 'tes.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-    const r = await s.call('/uploads/tes.png');
-    assert.equal(r.status, 200);
-    assert.match(r.headers.get('cache-control'), /max-age=86400/);
-    const missing = await s.call('/uploads/tidak-ada.png');
+    const anon = await s.call('/uploads/tes.png');
+    assert.equal(anon.status, 401);
+    assert.equal((await s.call('/uploads/tidak-ada.png')).status, 401);
+    const { cookie } = await s.login();
+    const ok = await s.call('/uploads/tes.png', { cookie });
+    assert.equal(ok.status, 200);
+    assert.match(ok.headers.get('cache-control'), /private/);
+    const missing = await s.call('/uploads/tidak-ada.png', { cookie });
     assert.equal(missing.status, 404);
     assert.ok(missing.json.error);
   });
@@ -258,9 +262,26 @@ describe('kredensial awal dan siklus hidup', () => {
     await assert.rejects(startServer({ env: { PORT: 'abc' } }), /PORT tidak valid/);
   });
 
-  test('SIGTERM: server menutup diri dengan rapi, kode keluar 0 (tanpa login)', async () => {
+  test('penutupan rapi: keluar 0 dan mencatat Server ditutup (tanpa login)', async () => {
+    const s = await startServer({ env: { NODE_ENV: 'test' }, stdin: true });
+    s.child.stdin.write('shutdown\n');
+    const info = await s.done;
+    assert.equal(info.code, 0);
+    assert.match(s.output(), /Server ditutup/);
+    await s.stop();
+  });
+
+  test('SIGTERM dari luar: Linux menjalankan handler; Windows menghentikan proses tanpa handler', async () => {
     const s = await startServer();
     const info = await s.stop();
+    if (process.platform === 'win32') {
+      // child.kill('SIGTERM') di Windows memakai TerminateProcess. Handler Node tidak jalan,
+      // jadi kode keluar null dan kalimat "Server ditutup" tidak tercetak. Bukan cacat aplikasi;
+      // target deploy (systemd) mengirim SIGTERM sungguhan dan menjalankan handler yang sama.
+      assert.equal(info.code, null);
+      assert.doesNotMatch(s.output(), /Server ditutup/);
+      return;
+    }
     assert.equal(info.code, 0);
     assert.match(s.output(), /Server ditutup/);
   });

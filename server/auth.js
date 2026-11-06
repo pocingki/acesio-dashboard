@@ -13,6 +13,15 @@ const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const PASSWORD_MIN = 8;
 const PASSWORD_MAX = 200;
 
+// Password yang dipilih orang: cukup panjang, ada huruf dan angka. Password acak pertama
+// (first-run) tidak lewat sini; panjangnya sudah lebih dari batas ini.
+export function assertPassword(password, label = 'Password') {
+  const s = String(password ?? '');
+  if (s.length < PASSWORD_MIN) throw new HttpError(400, `${label} minimal ${PASSWORD_MIN} karakter`);
+  if (s.length > PASSWORD_MAX) throw new HttpError(400, `${label} maksimal ${PASSWORD_MAX} karakter`);
+  if (!/[A-Za-z]/.test(s) || !/\d/.test(s)) throw new HttpError(400, `${label} harus berisi huruf dan angka`);
+}
+
 // Env dibaca saat dipanggil (bukan saat impor) supaya perubahan konfigurasi dan tes langsung berlaku.
 const sessionMs = () => (Number(process.env.SESSION_HOURS) || 12) * 3600 * 1000;
 const trustProxy = () => process.env.TRUST_PROXY === 'true';
@@ -194,8 +203,7 @@ export async function changePassword(userId, current, next, currentToken) {
   passwordLimiter.reset(`pw:${userId}`);
 
   const nxt = String(next ?? '');
-  if (nxt.length < PASSWORD_MIN) throw new HttpError(400, `Password baru minimal ${PASSWORD_MIN} karakter`);
-  if (nxt.length > PASSWORD_MAX) throw new HttpError(400, `Password baru maksimal ${PASSWORD_MAX} karakter`);
+  assertPassword(nxt, 'Password baru');
   if (nxt === cur) throw new HttpError(400, 'Password baru tidak boleh sama dengan password lama');
 
   const hash = await scryptSlots.run(() => hashPassword(nxt));

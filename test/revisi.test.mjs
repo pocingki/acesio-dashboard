@@ -22,7 +22,8 @@ test('profil: isi data diri + foto, tampil di /me, foto lama dihapus saat digant
   assert.equal(r.json.profile.name, 'Sari Supervisor');
   const me = await srv.call('/api/auth/me', { cookie: sv });
   assert.equal(me.json.user.photo, r.json.profile.photo);
-  assert.equal((await srv.call(r.json.profile.photo)).status, 200);
+  assert.equal((await srv.call(r.json.profile.photo)).status, 401);
+  assert.equal((await srv.call(r.json.profile.photo, { cookie: sv })).status, 200);
   const del = await srv.call('/api/auth/profile', { method: 'PATCH', cookie: sv, body: { photo: null } });
   assert.equal(del.json.profile.photo, null);
   assert.equal(del.json.profile.phone, '0812-3456-789', 'bidang lain tidak berubah');
