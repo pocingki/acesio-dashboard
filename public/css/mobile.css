@@ -122,6 +122,8 @@
   .quick .btn { flex: 1 1 auto; min-height: 48px; }
   .table-wrap--customers { max-height: none; overflow: visible; }
   .table-wrap td, .sch-table td { overflow-wrap: anywhere; }
+  .table-wrap:not(.table-wrap--sch) td.num,
+  .table-wrap:not(.table-wrap--sch) td.num::before { text-align: left; }
   .page-head h1 { font-size: 24px; }
   .input, .textarea, select { height: 48px; scroll-margin-bottom: 96px; }
   .textarea { height: auto; min-height: 96px; }
