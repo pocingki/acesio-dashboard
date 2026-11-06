@@ -98,6 +98,7 @@ export function customersView(main, user, ctx = NO_CTX) {
   function fitTable() {
     const wrap = box.querySelector('.table-wrap--customers');
     if (!wrap) return;
+    if (window.innerWidth <= 760) { wrap.style.maxHeight = ''; return; }
     const top = wrap.getBoundingClientRect().top + window.scrollY;
     const room = window.innerHeight - top - 84; // 84px = ruang tombol halaman di bawah tabel
     wrap.style.maxHeight = `${Math.max(320, Math.round(room))}px`;

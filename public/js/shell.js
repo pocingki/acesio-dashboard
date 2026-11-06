@@ -35,6 +35,17 @@ export function createShell({ user, tabs, onSelect, onLogout, actions = [], alia
   const dots = new Map(); // key -> [elemen titik]
   const statuses = new Map(); // key -> status
   const nav = h('nav', { class: 'tabs', 'aria-label': 'Menu utama' });
+  const dock = h('nav', { class: 'dock', 'aria-label': 'Menu utama' });
+  const dockButtons = new Map();
+  let moreBtn = null;
+  const DOCK_ICON = { home: 'home', schedule: 'calendar', history: 'users', report: 'chart', customers: 'users' };
+  const DOCK_LABEL = { home: 'Beranda', schedule: 'Jadwal', history: 'Riwayat', report: 'Laporan', customers: 'Customer' };
+  const dockItem = (id, label, ic, onclick) => {
+    const b = h('button', { class: 'dock__btn', type: 'button', onclick }, icon(ic, 22), h('span', null, label));
+    if (id) dockButtons.set(id, b);
+    dock.append(b);
+    return b;
+  };
   let openMenu = null; // { btn, menu }
   const menus = [];
 
@@ -43,6 +54,13 @@ export function createShell({ user, tabs, onSelect, onLogout, actions = [], alia
     const r = btn.getBoundingClientRect();
     const hdr = header.getBoundingClientRect();
     menu.style.top = `${Math.round(Math.max(r.bottom, hdr.bottom - 8) + 6)}px`;
+    if (window.innerWidth <= 760 && !menu.classList.contains('menu--user')) {
+      menu.style.top = 'auto';
+      menu.style.left = '0';
+      menu.style.right = '0';
+      menu.style.width = 'auto';
+      return;
+    }
     if (window.innerWidth <= 760) { menu.style.left = '12px'; menu.style.right = '12px'; menu.style.width = 'auto'; return; }
     menu.style.width = '';
     if (align === 'right') { menu.style.left = 'auto'; menu.style.right = `${Math.max(12, Math.round(window.innerWidth - r.right))}px`; }
@@ -101,6 +119,7 @@ export function createShell({ user, tabs, onSelect, onLogout, actions = [], alia
       const b = h('button', { class: 'tab', type: 'button', onclick: () => select(t.id) }, t.label);
       tabButtons.set(t.id, b);
       nav.append(b);
+      dockItem(t.id, DOCK_LABEL[t.id] || t.label, DOCK_ICON[t.id] || 'more', () => select(t.id));
       continue;
     }
     const keys = t.items.map((i) => i.key).filter(Boolean);
@@ -120,6 +139,9 @@ export function createShell({ user, tabs, onSelect, onLogout, actions = [], alia
     grpBtn.addEventListener('click', () => toggleMenu(grpBtn, menu, 'left'));
     menuKeys(grpBtn, menu);
     nav.append(grpBtn);
+    moreBtn = dockItem(null, 'Lainnya', 'more', () => toggleMenu(moreBtn, menu, 'left'));
+    moreBtn.setAttribute('aria-haspopup', 'menu');
+    moreBtn.setAttribute('aria-expanded', 'false');
     document.body.append(menu); // di luar header: tidak ikut terpotong dan selalu di atas konten
     menus.push(menu);
   }
@@ -150,7 +172,7 @@ export function createShell({ user, tabs, onSelect, onLogout, actions = [], alia
       brand(),
       nav,
       h('div', { class: 'topbar__user' }, ...actions, userBtn)));
-  const el = h('div', null, header, main);
+  const el = h('div', null, header, main, dock);
   const setH = () => document.documentElement.style.setProperty('--topbar-h', `${header.offsetHeight}px`);
   const resizeObserver = new ResizeObserver(setH);
   resizeObserver.observe(header);
@@ -164,10 +186,19 @@ export function createShell({ user, tabs, onSelect, onLogout, actions = [], alia
     const mine = new AbortController();
     controller = mine;
     const ctx = { signal: mine.signal, params, isCurrent: () => controller === mine && !mine.signal.aborted };
+    closeMenu();
     const lit = alias[id] || id; // halaman tanpa tombol menu (mis. isi SOAP) menyorot menu induknya
     for (const [k, b] of tabButtons) {
       if (k === lit) b.setAttribute('aria-current', 'page');
       else b.removeAttribute('aria-current');
+    }
+    for (const [k, b] of dockButtons) {
+      if (k === lit) b.setAttribute('aria-current', 'page');
+      else b.removeAttribute('aria-current');
+    }
+    if (moreBtn) {
+      if (groupOf.has(lit)) moreBtn.setAttribute('aria-current', 'page');
+      else moreBtn.removeAttribute('aria-current');
     }
     for (const g of new Set(groupOf.values())) {
       if (groupOf.get(lit) === g) g.setAttribute('aria-current', 'page');
