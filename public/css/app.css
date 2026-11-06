@@ -657,3 +657,20 @@ td small { display: block; color: var(--muted); }
 .profile__pw { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
 .profile__pw h3 { margin: 0 0 12px; font-size: 16px; }
 @media (max-width: 560px) { .profile__top { flex-direction: column; align-items: flex-start; } }
+
+/* Ponsel: satu skala huruf. Isi 16px supaya kolom tidak memicu zoom, teks kecil minimal 13px. */
+@media (max-width: 760px) {
+  body { font-size: 16px; }
+  .input, .textarea, select, .btn { font-size: 16px; }
+  .btn--sm { font-size: 15px; }
+  body .page-head h1, body .home__greet h1, body .us-head h1, body .login__brand h1 { font-size: 24px; }
+  body .section-head h2, body .modal__title, body .login__form h2 { font-size: 20px; }
+  body .login__brand p { font-size: 16px; }
+  body .stat__value, body .hstat__num { font-size: 30px; }
+  body .hint, body .pill, body .brand__sub, body .menu__text small, body .chip, body .mini, body th,
+  body .svc__badge, body .svc__name, body .cgroups__head, body .profile__facts dt,
+  body .donut__center small, body .choice__text small, body .intg-node span, body .intg-progress li,
+  body .notify__time, body .us-time__end, body .us-group__tag, body .visit-card__label,
+  body .visit-card__facts dt, body .visit__count, body .approve__done, body .svc-name small,
+  body .table-wrap:not(.table-wrap--sch) td::before, body .sch-table td::before { font-size: 13px; }
+}
