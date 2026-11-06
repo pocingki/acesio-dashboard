@@ -222,5 +222,5 @@ test('layanan terakhir tidak bisa dihapus; seed awal tidak mengisi ulang setelah
   const r = spawnSync(process.execPath, ['--no-warnings', '--input-type=module', '-e',
     "const { db } = await import(process.env.DB_URL); console.log(db.prepare('SELECT COUNT(*) AS n FROM services WHERE active = 1').get().n);"],
   { env: { ...process.env, DB_URL: new URL('../server/db.js', import.meta.url).href }, encoding: 'utf8' });
-  assert.equal(r.stdout.trim(), '1', r.stderr);
+  assert.equal(r.stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '').trim(), '1', r.stderr);
 });
