@@ -125,6 +125,18 @@
   .table-wrap:not(.table-wrap--sch) td.num,
   .table-wrap:not(.table-wrap--sch) td.num::before { text-align: left; }
   .page-head h1 { font-size: 24px; }
+  .page-head .toolbar > .field { flex: none; align-content: start; gap: 4px; }
+  .page-head .toolbar--export { gap: 8px; justify-content: flex-start; }
+  .page-head .toolbar--export .btn {
+    flex: 0 1 auto;
+    width: auto;
+    min-width: 108px;
+    max-width: 148px;
+    min-height: 36px;
+    height: 36px;
+    padding: 0 12px;
+    font-size: 14px;
+  }
   .input, .textarea, select { height: 48px; scroll-margin-bottom: 96px; }
   .textarea { height: auto; min-height: 96px; }
   .btn, .btn--sm, .subtab, .day, .visit__actions .btn { min-height: 48px; height: auto; }

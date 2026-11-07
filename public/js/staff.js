@@ -265,7 +265,7 @@ function reportView(main, user, ctx) {
       h('div', { class: 'toolbar' },
         field('Dari tanggal', from), field('Sampai tanggal', to),
         h('div', { class: 'field' }, h('span', { class: 'label' }, 'Tarik data'),
-          h('div', { class: 'toolbar' }, downloadButton('CSV', () => exportTarget('csv')), downloadButton('Excel', () => exportTarget('xlsx')))))),
+          h('div', { class: 'toolbar toolbar--export' }, downloadButton('CSV', () => exportTarget('csv')), downloadButton('Excel', () => exportTarget('xlsx')))))),
     h('div', { class: 'quick', role: 'group', 'aria-label': 'Periode cepat' }, h('span', { class: 'label' }, 'Periode cepat'), quickBtns),
     rangeMsg,
     stats,
