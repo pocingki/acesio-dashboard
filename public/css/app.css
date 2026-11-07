@@ -244,6 +244,8 @@ td small { display: block; color: var(--muted); }
 
 @media (min-width: 901px) {
   .panel { position: sticky; top: calc(var(--topbar-h, 64px) + 10px); }
+  .topbar .brand { min-width: max-content; }
+  .brand__sub { max-width: none; overflow: visible; text-overflow: unset; }
 }
 @media (max-width: 900px) {
   .brand__sub { display: none; }

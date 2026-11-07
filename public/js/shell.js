@@ -1,6 +1,7 @@
 import { api } from './api.js';
 import { h, icon, emptyState, ROLE_LABEL } from './ui.js';
 import { avatar, paintAvatar, openProfileModal } from './profile.js';
+import { hashForPage, pageFromHash } from './page.js';
 
 // Shell yang sedang tampil; app.js membatalkannya saat sesi habis atau keluar.
 let activeShell = null;
@@ -216,7 +217,23 @@ export function createShell({ user, tabs, onSelect, onLogout, actions = [], alia
     } catch (e) {
       failed(e);
     }
+    remember(id, params);
     return ctx;
+  }
+
+  // Hash menyimpan halaman (dan parameter singkatnya) tanpa menambah riwayat browser.
+  function remember(id, params) {
+    if (!tabButtons.has(id) && !Object.prototype.hasOwnProperty.call(alias, id)) return;
+    const next = hashForPage(id, params);
+    if (location.hash.replace(/^#/, '') === next) return;
+    history.replaceState(null, '', `#${next}`);
+  }
+
+  // Buka halaman di hash bila akun ini memang punya menu itu; jika tidak, halaman awal.
+  function open(fallback) {
+    const allowed = new Set([...tabButtons.keys(), ...Object.keys(alias)]);
+    const page = pageFromHash(location.hash, allowed, fallback);
+    select(page.id, page.params);
   }
 
   function dispose() {
@@ -227,7 +244,7 @@ export function createShell({ user, tabs, onSelect, onLogout, actions = [], alia
     resizeObserver.disconnect();
   }
 
-  const shell = { el, main, select, dispose, setStatus };
+  const shell = { el, main, select, open, dispose, setStatus };
   activeShell = shell;
   return shell;
 }

@@ -52,7 +52,7 @@ export function renderStaffApp(root, user, { onLogout }) {
   const baseDispose = shell.dispose;
   shell.dispose = () => { bell.dispose(); baseDispose(); };
   root.append(shell.el);
-  shell.select('report');
+  shell.open('report');
 }
 
 // ---------- periode (fungsi murni, diekspor untuk tes) ----------

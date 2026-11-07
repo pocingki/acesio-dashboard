@@ -58,7 +58,7 @@ export function renderUserApp(root, user, { onLogout }) {
   };
   activeShell = shell;
   root.append(shell.el);
-  shell.select('home');
+  shell.open('home');
 }
 
 // Alur input user (lihat visit.js): admin membuat jadwal beserta customer dan layanannya; user membuka jadwal
