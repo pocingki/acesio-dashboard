@@ -242,6 +242,22 @@ function describe(row, d, L) {
         summary: `Impor data customer: ${num(d.added)} ditambahkan, ${num(d.updated)} diperbarui, ${num(d.skipped)} dilewati`,
         items: [{ label: 'Ditambahkan', value: num(d.added) }, { label: 'Diperbarui', value: num(d.updated) }, { label: 'Dilewati', value: num(d.skipped) }],
       };
+    case 'incoming.accept':
+      return {
+        summary: d.linked
+          ? `Menerima permohonan WhatsApp dan menghubungkannya ke customer yang nomornya sudah ada (${d.rm_no || '–'})`
+          : `Menerima permohonan WhatsApp menjadi customer baru (${d.rm_no || '–'})`,
+        items: [
+          { label: 'Customer', value: L.customer(row.target_id) },
+          { label: 'No RM', value: d.rm_no || '–' },
+          { label: 'Cara', value: d.linked ? 'Nomor sudah terdaftar, customer baru tidak dibuat' : 'Customer baru' },
+        ],
+      };
+    case 'incoming.reject':
+      return {
+        summary: 'Menolak permohonan customer dari WhatsApp',
+        items: [{ label: 'Permohonan', value: row.target_id || '–' }],
+      };
     case 'customer.create':
       return {
         summary: `Menambah customer ${L.customer(row.target_id)} (${ORIGIN[d.origin] || d.origin || '–'})`,

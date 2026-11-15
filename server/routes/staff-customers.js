@@ -2,13 +2,14 @@ import { db, tx } from '../db.js';
 import { HttpError, likePattern } from '../util.js';
 import { sendExport, stamp } from './helpers.js';
 import {
-  CUSTOMER_HEADERS, CUSTOMER_FIELDS as FIELDS, cleanCustomer, insertCustomer, updateCustomer, findByRm, importCustomers, customerExportRow,
+  CUSTOMER_HEADERS, CUSTOMER_FIELDS as FIELDS, cleanCustomer, insertCustomer, updateCustomer, findByRm, nextRmNo, importCustomers, customerExportRow,
 } from '../customers.js';
 import { logAudit } from '../audit.js';
 import { clientIp } from '../auth.js';
 import { resolveReference, platformNames } from '../platforms.js';
 import { add, LIMITS } from './index.js';
 import { parseId, readFormat, cleanQ, phonePatterns } from './history.js';
+import { listPending, acceptIncoming, rejectIncoming } from '../incoming.js';
 
 const CUSTOMER_COLS = 'c.id, c.rm_no, c.reimburse, c.name, c.gender, c.birth_date, c.phone, c.occupation, c.domicile, c.month, c.reference, c.medical_note, c.origin';
 const SEARCH_COLS = ['c.rm_no', 'c.name', 'c.reimburse', 'c.occupation', 'c.domicile', 'c.month', 'c.reference', 'c.medical_note'];
@@ -111,6 +112,36 @@ const customerBody = (body) => {
   if (warnings.length) throw new HttpError(400, warnings[0]);
   return value;
 };
+
+add('GET', '/api/staff/incoming-leads', 'staff', () => ({ leads: listPending() }));
+
+add('POST', '/api/staff/incoming-leads/:id/accept', 'staff', ({ req, user, params, body }) => {
+  const id = parseId(params.id, 'ID permohonan');
+  const result = orConflict(() => acceptIncoming(id, user, body?.rm_no));
+  logAudit({
+    actor: { id: user.id, name: user.name },
+    action: 'incoming.accept',
+    targetType: 'customer',
+    targetId: String(result.customer_id),
+    detail: { lead_id: id, rm_no: result.rm_no, linked: result.linked },
+    ip: clientIp(req),
+  });
+  return result;
+});
+
+add('POST', '/api/staff/incoming-leads/:id/reject', 'staff', ({ req, user, params, body }) => {
+  const id = parseId(params.id, 'ID permohonan');
+  const result = rejectIncoming(id, user, body?.reason);
+  logAudit({
+    actor: { id: user.id, name: user.name },
+    action: 'incoming.reject',
+    targetType: 'incoming_lead',
+    targetId: String(id),
+    detail: {},
+    ip: clientIp(req),
+  });
+  return result;
+});
 
 add('POST', '/api/staff/customers', 'staff', ({ req, user, body }) => {
   const value = customerBody(body);

@@ -120,6 +120,25 @@ export function updateCustomer(id, v) {
 
 export const findByRm = (rm) => db.prepare('SELECT id FROM customers WHERE rm_no = ?').get(rm);
 
+export function nextRmNo() {
+  const rows = db.prepare("SELECT rm_no FROM customers WHERE rm_no LIKE 'RM-%'").all();
+  let maxNum = 0;
+  for (const r of rows) {
+    const m = /^RM-(\d+)$/i.exec(r.rm_no || '');
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > maxNum) maxNum = n;
+    }
+  }
+  let next = maxNum + 1;
+  let candidate = `RM-${String(next).padStart(4, '0')}`;
+  while (findByRm(candidate)) {
+    next++;
+    candidate = `RM-${String(next).padStart(4, '0')}`;
+  }
+  return candidate;
+}
+
 // ---------- impor ----------
 const norm = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const HEADER_ALIASES = {

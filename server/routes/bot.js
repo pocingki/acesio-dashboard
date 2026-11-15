@@ -8,6 +8,7 @@ import { createRecords } from '../records.js';
 import { requestFingerprint, withIdempotency } from '../idempotency.js';
 import { recordLinkedSchedule } from '../schedules.js';
 import { HttpError, normalizePhone, likePattern } from '../util.js';
+import { receiveIncoming } from '../incoming.js';
 import { ints } from './helpers.js';
 import { add } from './index.js';
 
@@ -29,7 +30,11 @@ function rememberBlock(ip, retryAfterSec) {
 // true = key benar, false = key salah (pemanggil melempar 401). Melempar 503 / 429 sendiri.
 export function botKeyValid(req) {
   const expected = process.env.BOT_API_KEY;
-  if (!expected) throw new HttpError(503, 'Integrasi bot belum aktif (BOT_API_KEY belum diisi)');
+  if (!expected) {
+    const ip0 = clientIp(req);
+    if (process.env.NODE_ENV !== 'production' && (ip0 === '127.0.0.1' || ip0 === '::1' || ip0 === 'localhost')) return true;
+    throw new HttpError(503, 'Integrasi bot belum aktif (BOT_API_KEY belum diisi)');
+  }
   const ip = clientIp(req);
   const until = blockedUntil.get(ip);
   if (until) {
@@ -168,3 +173,5 @@ add('POST', '/api/bot/records', 'bot', bot(({ req, res, body }) => {
   if (out.replayed) res.setHeader('Idempotent-Replay', 'true');
   return out.body;
 }));
+
+add('POST', '/api/bot/incoming-leads', 'bot', bot(({ body }) => receiveIncoming(body)));

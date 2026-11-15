@@ -286,6 +286,25 @@ CREATE TABLE IF NOT EXISTS notifications (
   read_at TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, id);
+
+CREATE TABLE IF NOT EXISTS incoming_leads (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  wa_lead_id TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL DEFAULT '',
+  platform TEXT NOT NULL DEFAULT 'WhatsApp',
+  keyword TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  raw_data TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','rejected')),
+  rm_no TEXT NOT NULL DEFAULT '',
+  customer_id INTEGER REFERENCES customers(id),
+  rejection_reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  processed_at TEXT NOT NULL DEFAULT '',
+  processed_by INTEGER REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_incoming_leads_status ON incoming_leads(status);
 `);
 
 // Timer layanan dan approve. flow = 1 bila jadwal dimulai dengan alur baru (Mulai -> SOAP -> hitung mundur -> approve);
