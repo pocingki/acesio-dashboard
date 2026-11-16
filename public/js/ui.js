@@ -1,3 +1,20 @@
+// ---------- pengaman DOM: nilai kosong tidak boleh tampil sebagai teks "null" ----------
+// append/prepend/replaceChildren/before/after bawaan browser mengubah null/undefined/false menjadi teks
+// "null"/"undefined"/"false". h() sudah melewatinya; patch ini membuat pemanggilan langsung (mis.
+// body.replaceChildren(a, kondisi ? b : null)) berperilaku sama, jadi ekspresi kondisional aman di seluruh aplikasi.
+(function guardDomInsertion() {
+  if (typeof Element === 'undefined' || Element.prototype.__acesioGuard) return;
+  const keep = (args) => args.filter((x) => x != null && x !== false);
+  for (const name of ['append', 'prepend', 'replaceChildren', 'before', 'after']) {
+    for (const proto of [Element.prototype, DocumentFragment.prototype]) {
+      const orig = proto[name];
+      if (typeof orig !== 'function' || !Object.prototype.hasOwnProperty.call(proto, name)) continue;
+      Object.defineProperty(proto, name, { configurable: true, writable: true, value: function guarded(...args) { return orig.apply(this, keep(args)); } });
+    }
+  }
+  Object.defineProperty(Element.prototype, '__acesioGuard', { value: true });
+}());
+
 // ---------- DOM helper ----------
 export function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);

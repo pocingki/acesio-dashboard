@@ -33,8 +33,8 @@ function quickRange(kind, today) {
 }
 const QUICK = [['today', 'Hari ini'], ['tomorrow', 'Besok'], ['next7', '7 hari ke depan'], ['all', 'Semua']];
 
-// Hanya supervisor, hanya tugas yang sudah dijalani user (Sedang dijalani atau Selesai).
-const canDelete = (s, user) => user.role === 'supervisor' && (s.status === 'berjalan' || s.status === 'selesai');
+// Hanya supervisor, hanya tugas yang sudah dijalani user (Sedang dijalani atau Selesai) atau yang sudah dibatalkan.
+const canDelete = (s, user) => user.role === 'supervisor' && (s.status === 'berjalan' || s.status === 'selesai' || s.status === 'batal');
 const canCancel = (s, user) => s.status === 'baru' || (user.role === 'supervisor' && s.status === 'berjalan');
 
 // Menonaktifkan tombol selama permintaan berjalan (cegah klik ganda).

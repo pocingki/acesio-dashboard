@@ -137,16 +137,18 @@ test('hapus tugas selesai: jadwal, layanan jadwal, dan komisi dari batch-nya ter
   assert.ok(!a.detail.includes('rahasia'), 'isi SOAP tidak masuk audit');
 });
 
-test('hapus tugas sedang dijalani diizinkan; baru dan batal ditolak 409', async () => {
+test('hapus tugas sedang dijalani dan batal diizinkan; baru ditolak 409', async () => {
   const uid = mkUser('terapis6', 'user');
-  const run = mkSchedule(uid, 'berjalan');
-  assert.equal((await call('DELETE', `/api/sv/schedules/${run}`, { user: SV })).status, 200);
-  for (const st of ['baru', 'batal']) {
+  for (const st of ['berjalan', 'batal']) {
     const id = mkSchedule(uid, st);
-    const r = await call('DELETE', `/api/sv/schedules/${id}`, { user: SV });
-    assert.equal(r.status, 409, st);
-    assert.equal(count('SELECT COUNT(*) AS n FROM schedules WHERE id = ?', id), 1);
+    assert.equal((await call('DELETE', `/api/sv/schedules/${id}`, { user: SV })).status, 200, st);
+    assert.equal(count('SELECT COUNT(*) AS n FROM schedules WHERE id = ?', id), 0, st);
+    assert.equal(audit('schedule.delete').at(-1).target_id, String(id));
   }
+  const baru = mkSchedule(uid, 'baru');
+  const r = await call('DELETE', `/api/sv/schedules/${baru}`, { user: SV });
+  assert.equal(r.status, 409);
+  assert.equal(count('SELECT COUNT(*) AS n FROM schedules WHERE id = ?', baru), 1);
   assert.equal((await call('DELETE', '/api/sv/schedules/987654', { user: SV })).status, 404);
 });
 

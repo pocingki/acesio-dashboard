@@ -266,7 +266,7 @@ export function openIntegrationDrawer(onState) {
         step({ n: 1, title: 'Sambungkan ke WhatsApp', done: x, children: x ? connectedView(s) : connectForm() }),
         step({ n: 2, title: 'Pilih yang dikirim', done: false, locked: !x, children: x ? chooseView(s) : [h('p', { class: 'hint' }, 'Muncul setelah tersambung.')] }),
         step({ n: 3, title: 'Nyalakan', done: s.enabled, locked: !x, children: x ? switchOnView(s) : [h('p', { class: 'hint' }, 'Muncul setelah tersambung.')] })),
-      x ? activity(s) : null);
+      ...(x ? [activity(s)] : []));
   }
 
   body.append(h('p', { class: 'muted' }, 'Memuat…'));

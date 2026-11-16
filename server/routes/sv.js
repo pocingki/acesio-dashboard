@@ -360,16 +360,16 @@ add('DELETE', '/api/sv/accounts/:id', 'sv', ({ req, user, params }) => {
   return result;
 });
 
-// ----- hapus tugas (jadwal) yang sudah dijalani user -----
-// Hanya jadwal berstatus Sedang dijalani atau Selesai. Layanan/komisi yang tercatat dari jadwal itu
+// ----- hapus tugas (jadwal) yang sudah dijalani user atau sudah dibatalkan -----
+// Hanya jadwal berstatus Sedang dijalani, Selesai, atau Batal (jadwal Baru harus dibatalkan dulu). Layanan/komisi yang tercatat dari jadwal itu
 // (records dengan batch yang sama) ikut dihapus supaya komisi tidak tertinggal. Isi SOAP tidak masuk audit.
 add('DELETE', '/api/sv/schedules/:id', 'sv', ({ req, user, params }) => {
   const id = idParam(params.id);
   return tx(() => {
     const s = db.prepare('SELECT id, user_id, customer_id, day, status, batch FROM schedules WHERE id = ?').get(id);
     if (!s) throw new HttpError(404, 'Jadwal tidak ditemukan');
-    if (s.status !== 'berjalan' && s.status !== 'selesai') {
-      throw new HttpError(409, 'Hanya tugas yang sudah dijalani user (Sedang dijalani atau Selesai) yang bisa dihapus', 'SCHEDULE_STATE');
+    if (s.status !== 'berjalan' && s.status !== 'selesai' && s.status !== 'batal') {
+      throw new HttpError(409, 'Jadwal Baru tidak bisa dihapus; batalkan dulu. Yang bisa dihapus: Sedang dijalani, Selesai, atau Batal', 'SCHEDULE_STATE');
     }
     const records = s.batch
       ? Number(db.prepare('DELETE FROM records WHERE batch = ? AND user_id = ?').run(s.batch, s.user_id).changes)

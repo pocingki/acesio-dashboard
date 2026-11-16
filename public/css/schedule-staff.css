@@ -49,14 +49,15 @@
 .sch-chip__x { display: inline-grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; }
 .sch-chip__x:hover { background: var(--blue-200); }
 
-.sch-svc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; max-height: 260px; overflow: auto; padding: 2px; }
+.sch-svc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); grid-auto-rows: minmax(48px, max-content); align-content: start; align-self: start; gap: 8px; max-height: 260px; overflow: auto; padding: 2px; }
+/* align-self: start -> grid ini berada di dalam .field (display:grid); tanpa ini ia dipaksa setinggi sel dan baris terkunci 48px sehingga nama layanan panjang saling menumpuk. */
 .sch-svc { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 12px; background: #fff; cursor: pointer; min-height: 48px; }
 .sch-svc:hover { border-color: var(--blue-200); background: var(--blue-50); }
 .sch-svc:has(input:checked) { border-color: var(--blue-600); background: var(--blue-50); }
 .sch-svc:has(input:focus-visible) { outline: 3px solid var(--blue-600); outline-offset: 2px; }
 .sch-svc input { flex: none; width: 18px; height: 18px; accent-color: var(--blue-700); }
 .sch-svc__num { flex: none; min-width: 22px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
-.sch-svc__name { min-width: 0; font-size: 14px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.sch-svc__name { min-width: 0; font-size: 14px; font-weight: 600; line-height: 1.25; overflow-wrap: break-word; hyphens: auto; }
 
 /* ---------- ponsel: baris tabel menjadi kartu bertumpuk ---------- */
 @media (max-width: 760px) {
