@@ -58,12 +58,11 @@ function mkRecord(userId, batch) {
 }
 const count = (sql, ...a) => db.prepare(sql).get(...a).n;
 
-test('hanya supervisor: rute hapus terdaftar dengan akses sv', () => {
-  for (const [m, p] of [['DELETE', '/api/sv/accounts/1'], ['DELETE', '/api/sv/schedules/1']]) {
-    const r = routes.find((x) => x.method === m && x.rx.test(p));
-    assert.ok(r, p);
-    assert.equal(r.access, 'sv');
-  }
+test('rute hapus akun hanya supervisor; hapus jadwal untuk staf (admin dibatasi di handler)', () => {
+  const acc = routes.find((x) => x.method === 'DELETE' && x.rx.test('/api/sv/accounts/1'));
+  assert.equal(acc.access, 'sv');
+  const sch = routes.find((x) => x.method === 'DELETE' && x.rx.test('/api/sv/schedules/1'));
+  assert.equal(sch.access, 'staff');
 });
 
 test('hapus akun user: data kerja ikut hilang, tercatat di audit', async () => {
@@ -225,4 +224,19 @@ test('layanan terakhir tidak bisa dihapus; seed awal tidak mengisi ulang setelah
     "const { db } = await import(process.env.DB_URL); console.log(db.prepare('SELECT COUNT(*) AS n FROM services WHERE active = 1').get().n);"],
   { env: { ...process.env, DB_URL: new URL('../server/db.js', import.meta.url).href }, encoding: 'utf8' });
   assert.equal(r.stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '').trim(), '1', r.stderr);
+});
+
+test('admin hanya bisa menghapus jadwal Batal; Selesai/Sedang dijalani/Baru ditolak 403 dan data utuh', async () => {
+  const ADM = { id: svId, name: 'Admin Uji', role: 'admin' };
+  const uid = mkUser('terapis_adm', 'user');
+  const batal = mkSchedule(uid, 'batal');
+  const r = await call('DELETE', `/api/sv/schedules/${batal}`, { user: ADM });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(count('SELECT COUNT(*) AS n FROM schedules WHERE id = ?', batal), 0);
+  assert.equal(audit('schedule.delete').at(-1).target_id, String(batal));
+  for (const st of ['selesai', 'berjalan', 'baru']) {
+    const id = mkSchedule(uid, st);
+    assert.equal((await call('DELETE', `/api/sv/schedules/${id}`, { user: ADM })).status, 403, st);
+    assert.equal(count('SELECT COUNT(*) AS n FROM schedules WHERE id = ?', id), 1, st);
+  }
 });
