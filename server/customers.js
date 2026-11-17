@@ -4,7 +4,7 @@ import { readTable } from './importer.js';
 import { resolveReference } from './platforms.js';
 
 // Urutan kolom baku (impor, ekspor, dan tabel Customer): No | No RM | Reimburse | Nama | Jenis Kelamin | Tgl Lahir | No WA | Pekerjaan | Domisili | Bulan | Referensi | SOAP
-export const CUSTOMER_HEADERS = ['No', 'No RM', 'Reimburse', 'Nama', 'Jenis Kelamin', 'Tgl Lahir', 'No WA', 'Pekerjaan', 'Domisili', 'Bulan', 'Referensi', 'SOAP'];
+export const CUSTOMER_HEADERS = ['No', 'No RM', 'Reimburse', 'Nama', 'Jenis Kelamin', 'Tgl Lahir', 'No WA', 'Pekerjaan', 'Domisili', 'Bulan', 'Referensi', 'SOAP', 'Catatan'];
 export const GENDER_LABEL = { L: 'Laki-laki', P: 'Perempuan', '': '' };
 
 const nowIso = () => new Date().toISOString();
@@ -99,12 +99,13 @@ export function cleanCustomer(raw) {
       // jadi form tambah/ubah dan upload CSV/Excel sama hasilnya.
       reference: resolveReference(squash(raw.reference, 150)),
       medical_note: cleanNote(raw.medical_note),
+      note: cleanNote(raw.note),
     },
     warnings,
   };
 }
 
-export const CUSTOMER_FIELDS = ['rm_no', 'reimburse', 'name', 'gender', 'birth_date', 'phone', 'occupation', 'domicile', 'month', 'reference', 'medical_note'];
+export const CUSTOMER_FIELDS = ['rm_no', 'reimburse', 'name', 'gender', 'birth_date', 'phone', 'occupation', 'domicile', 'month', 'reference', 'medical_note', 'note'];
 const FIELDS = CUSTOMER_FIELDS;
 
 export function insertCustomer(v, origin) {
@@ -154,7 +155,9 @@ const HEADER_ALIASES = {
   month: ['bulan'],
   reference: ['referensi', 'reference', 'sumber'],
   // Header lama ("Catatan Medis", dst.) tetap diterima agar file impor lama masih bisa dipakai; header baku sekarang "SOAP".
-  medical_note: ['soap', 'catatanmedis', 'catatan', 'catmedis', 'medicalnote', 'medis'],
+  // "Catatan" saja = kolom Catatan (umum), bukan SOAP.
+  medical_note: ['soap', 'catatanmedis', 'catmedis', 'medicalnote', 'medis'],
+  note: ['catatan', 'keterangan', 'note'],
 };
 
 // Cari baris judul (punya kolom No RM dan Nama) di 10 baris berisi pertama; baris di atasnya (judul laporan dsb.) diabaikan.
@@ -228,5 +231,5 @@ export function importCustomers(format, content) {
 
 // Baris ekspor mengikuti urutan CUSTOMER_HEADERS; `no` = nomor urut tampil.
 export const customerExportRow = (c, no) => [
-  no, c.rm_no || '', c.reimburse, c.name, GENDER_LABEL[c.gender] || '', displayDate(c.birth_date), c.phone, c.occupation, c.domicile, c.month, c.reference, c.medical_note || '',
+  no, c.rm_no || '', c.reimburse, c.name, GENDER_LABEL[c.gender] || '', displayDate(c.birth_date), c.phone, c.occupation, c.domicile, c.month, c.reference, c.medical_note || '', c.note || '',
 ];

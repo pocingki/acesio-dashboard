@@ -189,6 +189,11 @@ if (!db.prepare("SELECT 1 FROM pragma_table_info('customers') WHERE name = 'medi
   db.exec("ALTER TABLE customers ADD COLUMN medical_note TEXT NOT NULL DEFAULT ''");
 }
 
+// Kolom Catatan (umum, diisi admin/supervisor) pada tabel Customer; terpisah dari medical_note (SOAP). Aman dijalankan berulang.
+if (!db.prepare("SELECT 1 FROM pragma_table_info('customers') WHERE name = 'note'").get()) {
+  db.exec("ALTER TABLE customers ADD COLUMN note TEXT NOT NULL DEFAULT ''");
+}
+
 // Migrasi ke versi 4. Nomor versi hanya dinaikkan, tidak pernah diturunkan, dan hanya setelah
 // tabel berhasil dibuat di dalam transaksi yang sama (DB dari versi lebih baru tidak disentuh).
 if (db.prepare('PRAGMA user_version').get().user_version < SCHEMA_VERSION) {

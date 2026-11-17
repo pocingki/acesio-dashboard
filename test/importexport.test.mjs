@@ -306,3 +306,25 @@ test('unggah ulang data customer (data lama + baru): tidak ada duplikat, data la
   assert.equal(r3.added, 0);
   assert.equal(total(), 3);
 });
+
+test('kolom Catatan customer: terpisah dari SOAP, ikut diimpor, diperbarui, tidak terhapus oleh sel kosong, dan ikut ekspor', () => {
+  const head = 'No RM,Nama,SOAP,Catatan\n';
+  importCustomers('csv', `${head}RM-CAT1,Dewi,Nyeri punggung,Lebih suka jadwal sore\n`);
+  const get = () => db.prepare("SELECT medical_note, note FROM customers WHERE rm_no = 'RM-CAT1'").get();
+  assert.equal(get().medical_note, 'Nyeri punggung');
+  assert.equal(get().note, 'Lebih suka jadwal sore');
+  importCustomers('csv', `${head}RM-CAT1,Dewi,,\n`);
+  assert.equal(get().note, 'Lebih suka jadwal sore', 'sel kosong tidak menghapus');
+  importCustomers('csv', `${head}RM-CAT1,Dewi,,Pindah ke jadwal pagi\n`);
+  assert.equal(get().note, 'Pindah ke jadwal pagi');
+  assert.equal(get().medical_note, 'Nyeri punggung');
+  // File lama dengan judul "Catatan Medis" tetap masuk ke SOAP, bukan Catatan.
+  importCustomers('csv', 'No RM,Nama,Catatan Medis\nRM-CAT2,Eko,Cedera lutut\n');
+  const c2 = db.prepare("SELECT medical_note, note FROM customers WHERE rm_no = 'RM-CAT2'").get();
+  assert.equal(c2.medical_note, 'Cedera lutut');
+  assert.equal(c2.note, '');
+  assert.equal(CUSTOMER_HEADERS.at(-1), 'Catatan');
+  const row = customerExportRow(db.prepare("SELECT * FROM customers WHERE rm_no = 'RM-CAT1'").get(), 1);
+  assert.equal(row.length, CUSTOMER_HEADERS.length);
+  assert.equal(row.at(-1), 'Pindah ke jadwal pagi');
+});

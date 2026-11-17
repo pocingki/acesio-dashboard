@@ -3,7 +3,7 @@ import {
   h, icon, toast, fmtDate, fmtPhone, fmtNum, fmtBirth, GENDER_LABEL, openModal, emptyState, field, debounce,
 } from './ui.js';
 
-const HEADERS = ['No', 'No RM', 'Reimburse', 'Nama', 'Jenis Kelamin', 'Tgl Lahir', 'No WA', 'Pekerjaan', 'Domisili', 'Bulan', 'Referensi', 'SOAP'];
+const HEADERS = ['No', 'No RM', 'Reimburse', 'Nama', 'Jenis Kelamin', 'Tgl Lahir', 'No WA', 'Pekerjaan', 'Domisili', 'Bulan', 'Referensi', 'SOAP', 'Catatan'];
 const dash = (v) => (v ? v : h('span', { class: 'muted' }, '–'));
 const isAbort = (e) => e?.name === 'AbortError';
 
@@ -82,7 +82,7 @@ export function rangeLabel({ offset, shown, total, noun }) {
 // ======================= MENU CUSTOMER =======================
 export function customersView(main, user, ctx = NO_CTX) {
   const gate = createGate(ctx);
-  const q = h('input', { class: 'input', type: 'search', id: 'c-q', placeholder: 'Cari No RM, nama, domisili, pekerjaan, referensi, atau SOAP' });
+  const q = h('input', { class: 'input', type: 'search', id: 'c-q', placeholder: 'Cari No RM, nama, domisili, pekerjaan, referensi, SOAP, atau catatan' });
   const summary = h('p', { class: 'muted', role: 'status' }, 'Memuat…');
   const box = h('div');
   const pager = h('nav', { class: 'pager', 'aria-label': 'Halaman customer' });
@@ -131,6 +131,7 @@ export function customersView(main, user, ctx = NO_CTX) {
             h('td', { 'data-label': 'Bulan' }, dash(c.month)),
             h('td', { 'data-label': 'Referensi' }, dash(c.reference)),
             h('td', { class: 'cell-note', 'data-label': 'SOAP' }, dash(c.medical_note)),
+            h('td', { class: 'cell-note', 'data-label': 'Catatan' }, dash(c.note)),
             h('td', { 'data-label': 'Riwayat' }, h('div', { class: 'cust-act' },
               h('button', { class: 'link nowrap', type: 'button', onclick: () => openVisits(c, ctx) }, c.visits ? `${fmtNum(c.visits)}× terapi` : 'Belum ada'),
               h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => openCustomerForm(c, load) }, 'Ubah'))))))), 'Tabel data customer', 'table-wrap--customers')
@@ -223,6 +224,8 @@ function openCustomerForm(c, onSaved) {
   });
   const medical = h('textarea', { class: 'input textarea', id: 'cf-medical', rows: '4', maxlength: '2000', placeholder: 'Catatan awal tentang customer yang perlu diketahui terapis' });
   medical.value = c?.medical_note || '';
+  const note = h('textarea', { class: 'input textarea', id: 'cf-note', rows: '3', maxlength: '2000', placeholder: 'Catatan umum tentang customer, mis. preferensi jadwal atau hal yang perlu diingat' });
+  note.value = c?.note || '';
   const err = h('p', { class: 'error', role: 'alert' });
   const save = h('button', { class: 'btn btn--primary', type: 'submit' }, creating ? 'Simpan customer' : 'Simpan perubahan');
 
@@ -239,7 +242,8 @@ function openCustomerForm(c, onSaved) {
       field('Domisili', domicile),
       field('Bulan', month, 'Contoh: Oktober 2026.'),
       field('Referensi', reference, 'Ketik singkatan platform (fb, ig, tt, atau kode seperti IG01): otomatis menjadi nama lengkap, mis. Facebook. Isian lain, mis. nama teman, disimpan apa adanya.'),
-      h('div', { class: 'form-grid__full' }, field('SOAP', medical, 'Hanya terlihat oleh admin dan supervisor. Maksimal 2.000 huruf.'))),
+      h('div', { class: 'form-grid__full' }, field('SOAP', medical, 'Hanya terlihat oleh admin dan supervisor. Maksimal 2.000 huruf.')),
+      h('div', { class: 'form-grid__full' }, field('Catatan', note, 'Hanya terlihat oleh admin dan supervisor. Maksimal 2.000 huruf.'))),
     err,
     h('div', { class: 'modal__actions' }, h('button', { class: 'btn btn--ghost', type: 'button', onclick: () => modal.close() }, 'Batal'), save));
   form.append(refList);
@@ -256,7 +260,7 @@ function openCustomerForm(c, onSaved) {
     save.disabled = true;
     const body = {
       rm_no: rm.value, name: name.value, reimburse: reimburse.value, gender: gender.value, birth_date: birth.value, phone: phone.value,
-      occupation: occupation.value, domicile: domicile.value, month: month.value, reference: reference.value, medical_note: medical.value,
+      occupation: occupation.value, domicile: domicile.value, month: month.value, reference: reference.value, medical_note: medical.value, note: note.value,
     };
     try {
       if (creating) await api('/api/staff/customers', { method: 'POST', body });

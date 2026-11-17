@@ -12,7 +12,7 @@ const EMP = { tetap: 'Karyawan tetap', part_time: 'Part time' };
 const ORIGIN = { awal: 'Data awal', baru: 'Customer baru' };
 const FIELD_LABEL = {
   rm_no: 'No RM', reimburse: 'Reimburse', name: 'Nama', gender: 'Jenis Kelamin', birth_date: 'Tgl Lahir', phone: 'No WA',
-  occupation: 'Pekerjaan', domicile: 'Domisili', month: 'Bulan', reference: 'Referensi', medical_note: 'SOAP', origin: 'Asal data',
+  occupation: 'Pekerjaan', domicile: 'Domisili', month: 'Bulan', reference: 'Referensi', medical_note: 'SOAP', note: 'Catatan', origin: 'Asal data',
 };
 const SCHEDULE_FIELD_LABEL = {
   user_id: 'User', customer_id: 'Customer', day: 'Tanggal', start_time: 'Jam mulai', end_time: 'Jam selesai', note: 'Catatan', service_ids: 'Layanan',

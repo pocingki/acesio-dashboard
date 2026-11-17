@@ -57,7 +57,7 @@ test('SOAP tidak bocor ke endpoint sisi user', async () => {
 test('ekspor CSV dan Excel memuat kolom SOAP; template juga', async () => {
   const csv = await api(sv, '/api/staff/customers/export?format=csv&q=MED-001');
   const header = csv.text.replace(/^﻿/, '').split('\r\n')[0];
-  assert.ok(header.endsWith('Referensi,SOAP'), header);
+  assert.ok(header.endsWith('Referensi,SOAP,Catatan'), header);
   assert.ok(csv.text.includes('Sudah membaik'));
 
   const tpl = await api(sv, '/api/staff/customers/template?format=csv');

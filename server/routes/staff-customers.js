@@ -11,10 +11,10 @@ import { add, LIMITS } from './index.js';
 import { parseId, readFormat, cleanQ, phonePatterns } from './history.js';
 import { listPending, acceptIncoming, rejectIncoming } from '../incoming.js';
 
-const CUSTOMER_COLS = 'c.id, c.rm_no, c.reimburse, c.name, c.gender, c.birth_date, c.phone, c.occupation, c.domicile, c.month, c.reference, c.medical_note, c.origin';
-const SEARCH_COLS = ['c.rm_no', 'c.name', 'c.reimburse', 'c.occupation', 'c.domicile', 'c.month', 'c.reference', 'c.medical_note'];
+const CUSTOMER_COLS = 'c.id, c.rm_no, c.reimburse, c.name, c.gender, c.birth_date, c.phone, c.occupation, c.domicile, c.month, c.reference, c.medical_note, c.note, c.origin';
+const SEARCH_COLS = ['c.rm_no', 'c.name', 'c.reimburse', 'c.occupation', 'c.domicile', 'c.month', 'c.reference', 'c.medical_note', 'c.note'];
 const PAGE_SIZE = 50;
-const WIDTHS = [6, 16, 14, 28, 15, 13, 18, 20, 20, 14, 22, 50];
+const WIDTHS = [6, 16, 14, 28, 15, 13, 18, 20, 20, 14, 22, 50, 50];
 const DUP_RM = 'No RM sudah terdaftar';
 
 const blank = (v) => v === undefined || v === null || String(v).trim() === '';
@@ -62,7 +62,7 @@ add('GET', '/api/staff/customers', 'staff', ({ query }) => {
   return { customers, total, page, page_size: PAGE_SIZE, offset };
 });
 
-// Tarik data: kolom sama persis dengan tabel Customer (No | No RM | Reimburse | Nama | ... | Referensi | SOAP).
+// Tarik data: kolom sama persis dengan tabel Customer (No | No RM | Reimburse | Nama | ... | Referensi | SOAP | Catatan).
 add('GET', '/api/staff/customers/export', 'staff', ({ query, res }) => {
   const format = readFormat(query);
   const { where, args } = customerFilter(query);
@@ -71,7 +71,7 @@ add('GET', '/api/staff/customers/export', 'staff', ({ query, res }) => {
     format,
     filename: `data-customer-${stamp()}`,
     sheets: [{
-      name: 'Data Customer', headers: CUSTOMER_HEADERS, intCols: [0], wrapCols: [11], widths: WIDTHS,
+      name: 'Data Customer', headers: CUSTOMER_HEADERS, intCols: [0], wrapCols: [11, 12], widths: WIDTHS,
       rows: rows.map((c, i) => customerExportRow(c, i + 1)),
     }],
   });
@@ -107,7 +107,7 @@ const customerBody = (body) => {
   const { value, warnings } = cleanCustomer({
     rm_no: body.rm_no, reimburse: body.reimburse, name: body.name, gender: body.gender, birth_date: body.birth_date,
     phone: body.phone, occupation: body.occupation, domicile: body.domicile, month: body.month, reference: body.reference,
-    medical_note: body.medical_note,
+    medical_note: body.medical_note, note: body.note,
   });
   if (warnings.length) throw new HttpError(400, warnings[0]);
   return value;
@@ -168,6 +168,7 @@ add('PATCH', '/api/staff/customers/:id', 'staff', ({ req, user, params, body }) 
   const before = db.prepare('SELECT * FROM customers WHERE id = ?').get(id);
   if (!before) throw new HttpError(404, 'Customer tidak ditemukan');
   const value = customerBody(body);
+  if (body.note === undefined) value.note = before.note || ''; // klien lama tanpa kolom Catatan tidak menghapusnya
   orConflict(() => tx(() => {
     if (db.prepare('SELECT 1 FROM customers WHERE rm_no = ? AND id <> ?').get(value.rm_no, id)) throw new HttpError(409, DUP_RM);
     updateCustomer(id, value);

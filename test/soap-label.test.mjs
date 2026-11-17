@@ -24,7 +24,7 @@ test('template dan ekspor memakai header SOAP, bukan Catatan Medis', async () =>
   await api('/api/staff/customers', { method: 'POST', body: { rm_no: 'SOAP-001', name: 'Customer Soap', medical_note: 'catatan awal' } });
   const csv = await api('/api/staff/customers/export?format=csv&q=SOAP-001');
   const header = csv.text.replace(/^﻿/, '').split('\r\n')[0];
-  assert.ok(header.endsWith('Referensi,SOAP'), header);
+  assert.ok(header.endsWith('Referensi,SOAP,Catatan'), header);
   assert.ok(!csv.text.includes('Catatan Medis'));
 });
 
