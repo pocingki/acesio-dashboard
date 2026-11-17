@@ -101,7 +101,7 @@ before(async () => {
   setNow('09:00');
   srv = await startServer({
     env: {
-      NODE_ENV: 'test', APP_FAKE_NOW_FILE: clockFile, SESSION_TIMER: undefined, SESSION_MINUTES: '30',
+      NODE_ENV: 'test', APP_FAKE_NOW_FILE: clockFile, SESSION_TIMER: undefined, SLOT_CHECK: 'off', SESSION_MINUTES: '30',
       BOT_API_KEY: BOT_KEY,
     },
   });

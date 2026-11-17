@@ -33,6 +33,7 @@ Data contoh: `npm run seed:demo` membuat user demo (sari, budi, dewi) dengan **p
 | `APP_FAKE_NOW_FILE` | kosong | **Khusus tes.** Hanya dibaca bila `NODE_ENV=test`; berisi waktu palsu (ISO) untuk menguji batas waktu (SOAP, approve). **Jangan dipakai di produksi** |
 | `SOAP_DEADLINE` | `23:00` | Batas user mengisi SOAP pada tanggal jadwal (WIB, JJ:MM). Lewat batas ini tanpa SOAP, komisi tugas tidak berlaku kecuali admin/supervisor mengisikan SOAP |
 | `APPROVE_UNTIL` | `10:00` | Batas approve pada hari berikutnya (WIB, JJ:MM). Approve boleh pada tanggal jadwal, atau besoknya sampai jam ini |
+| `SLOT_CHECK` | menyala | `off` mematikan penolakan jadwal yang waktunya sudah lewat. Hanya untuk tes/seed; server produksi menolak nilai ini |
 | `SESSION_TIMER` | menyala | `off` mematikan alur SOAP-lalu-approve (perilaku lama: Mulai, isi SOAP, langsung Selesai). Untuk tes; jangan dipakai di produksi |
 | `COOKIE_SECURE` | `false` | `true` wajib di produksi. Cookie selalu `HttpOnly` dan `SameSite=Lax`; `Secure` ikut nilai ini atau HTTPS dari proxy |
 | `TRUST_PROXY` | `false` | `true` wajib di produksi, dan hanya bila port aplikasi tidak bisa dijangkau selain lewat reverse proxy. Batas login memakai IP klien |
@@ -76,7 +77,7 @@ Admin dan supervisor (staf) **membuat dan mengelola jadwal**; user **menjalankan
 - **Ubah**, **Tarik data** (CSV/Excel), dan **Riwayat** per customer.
 - Ekspor CSV menetralkan sel yang bisa dibaca Excel sebagai formula (anti formula injection). Hasil ekspor yang diimpor kembali tidak boleh mengubah data: nama seperti `-Andi` harus tetap `-Andi` (diuji di regresi #8).
 
-**Jadwal (admin dan supervisor)**: tab **Jadwal**.
+**Jadwal (admin dan supervisor)**: tab **Jadwal**. Jadwal **tidak bisa dibuat untuk waktu yang sudah lewat** (tanggal sebelum hari ini, atau hari ini dengan jam mulai sebelum menit sekarang WIB; 400 `SLOT_PASSED`). Mengubah tanggal/jam ke waktu yang sudah lewat juga ditolak, sedangkan mengubah catatan, layanan, atau user pada jadwal lama tetap boleh.
 1. **Tambah jadwal**: pilih user (hanya akun aktif), cari customer lewat No RM atau nama, **centang layanan yang akan dikerjakan** (minimal 1, maksimal 29, dari kotak layanan), isi tanggal, jam mulai, jam selesai (boleh kosong), dan catatan untuk terapis (maksimal 500 karakter). Tanggal tidak boleh lampau.
 2. Daftar bisa disaring menurut rentang tanggal, user, status, dan kata kunci (nama customer, No RM, nama user). Daftar tidak menampilkan SOAP; SOAP hanya ada di detail jadwal yang sudah selesai.
 3. **Ubah** (termasuk mengganti layanan atau user) hanya selama status **Baru**. **Batalkan**: admin hanya dari status Baru; supervisor juga dari Sedang dijalani. Jadwal Selesai atau Dibatalkan tidak bisa diubah lagi (409 `SCHEDULE_STATE`).
@@ -86,7 +87,7 @@ Admin dan supervisor (staf) **membuat dan mengelola jadwal**; user **menjalankan
 5. User menerima notifikasi untuk tiap tugas baru, perubahan, dan pembatalan. Bila admin mengganti user, user lama menerima pembatalan dan user baru menerima tugas baru.
 
 **User**
-1. Login (pukul 06.00–22.59). Tab awal **Beranda** menampilkan angka **customer hari ini** (customer unik pada jadwal hari ini yang tidak dibatalkan), ringkasan status, dan jadwal berikutnya. Ketuk angka itu untuk membuka **Jadwal Saya**.
+1. Login (tanpa batas jam). Tab awal **Beranda** menampilkan angka **customer hari ini** (customer unik pada jadwal hari ini yang tidak dibatalkan), ringkasan status, dan jadwal berikutnya. Ketuk angka itu untuk membuka **Jadwal Saya**.
 2. **Jadwal Saya** menampilkan jadwal **hari ini** secara bawaan. Ada pintasan *Hari ini*, *Besok*, *7 hari ke depan*, *Semua*, dan pilihan tanggal sendiri. Tiap baris memuat jam, customer, No RM, dan layanan yang ditentukan admin.
 3. Tekan **Mulai** pada jadwal hari ini (di Beranda atau Jadwal Saya): jadwal menjadi **Sedang dijalani** dan halaman **Input customer** langsung terbuka. Customer dan layanan sudah terisi; **user tidak memilih layanan** dan tidak mencari customer. SOAP diisi setelah pelayanan selesai.
 4. Setelah pelayanan ke customer selesai, isi keempat bagian **SOAP** (Subjective, Objective, Assessment, Planning; wajib, tiap bagian 3–2000 karakter) lalu **Simpan**. Tidak ada hitung mundur dan tidak ada waktu mundur: SOAP diisi saat pelayanan selesai, **paling lambat pukul 23.00 WIB** pada tanggal jadwal. Lewat batas itu user tidak bisa mengisi lagi dan komisi tugas tidak berlaku, kecuali admin/supervisor mengisikan SOAP-nya. Draf SOAP bertahan selama pindah tab, hilang saat keluar.

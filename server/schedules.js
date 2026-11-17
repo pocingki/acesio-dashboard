@@ -1,6 +1,6 @@
 import { db, tx, activeServiceCount } from './db.js';
 import { HttpError, isYmd, likePattern } from './util.js';
-import { ymd, now, soapDeadlinePassed, soapDeadlineHm, approveUntilHm, approvalOpen, approvalClosedMessage, dotTime } from './clock.js';
+import { ymd, now, slotPassed, SLOT_PASSED_MESSAGE, soapDeadlinePassed, soapDeadlineHm, approveUntilHm, approvalOpen, approvalClosedMessage, dotTime } from './clock.js';
 import { logAudit } from './audit.js';
 import { createNotification, NOTIFICATION_TYPES as NT } from './notifications.js';
 import { resolveCustomer, ints } from './routes/helpers.js';
@@ -212,6 +212,7 @@ export function createSchedule(body, actor, ip = '') {
   const day = readDay(body.day);
   if (day < ymd()) throw new HttpError(400, 'Tanggal jadwal tidak boleh sudah lewat');
   const start = readStart(body.start_time);
+  if (slotPassed(day, start)) throw new HttpError(400, SLOT_PASSED_MESSAGE, 'SLOT_PASSED');
   const end = readEnd(body.end_time);
   if (end && end < start) throw new HttpError(400, 'Jam selesai tidak boleh sebelum jam mulai');
   const note = readNote(body.note);
@@ -250,6 +251,8 @@ export function updateSchedule(id, body, actor, ip = '') {
   if (body.end_time !== undefined) next.end_time = readEnd(body.end_time);
   if (body.note !== undefined) next.note = readNote(body.note);
   if (next.end_time && next.end_time < next.start_time) throw new HttpError(400, 'Jam selesai tidak boleh sebelum jam mulai');
+  // Mengubah tanggal atau jam mulai ke waktu yang sudah lewat ditolak; mengubah catatan/layanan/user pada jadwal lama tetap boleh.
+  if ((next.day !== cur.day || next.start_time !== cur.start_time) && slotPassed(next.day, next.start_time)) throw new HttpError(400, SLOT_PASSED_MESSAGE, 'SLOT_PASSED');
   if (body.service_ids !== undefined) serviceIds = readServiceIds(body.service_ids);
 
   return tx(() => {

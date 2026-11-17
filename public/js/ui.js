@@ -95,6 +95,8 @@ export function dayInTz(date = new Date()) {
   return d ? new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d) : '';
 }
 export const todayInTz = () => dayInTz(new Date());
+// "HH:MM" sekarang menurut zona dari server.
+export const nowHmInTz = () => new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
 export const jakartaToday = () => todayInTz(); // alias lama
 export function normalizePhone(input) {
   let d = String(input || '').replace(/\D/g, '');

@@ -25,6 +25,9 @@ export function productionProblems(env = process.env) {
   if (String(env.APP_FAKE_NOW_FILE || '').trim()) {
     problems.push('APP_FAKE_NOW_FILE memalsukan jam dan tidak boleh diisi di produksi.');
   }
+  if (String(env.SLOT_CHECK || '').trim().toLowerCase() === 'off') {
+    problems.push('SLOT_CHECK=off adalah mode pengembangan dan tidak boleh dipakai di produksi.');
+  }
   if (String(env.SESSION_TIMER || '').trim() === 'off') {
     problems.push('SESSION_TIMER=off adalah mode pengembangan dan tidak boleh dipakai di produksi.');
   }

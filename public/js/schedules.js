@@ -2,7 +2,7 @@
 // Aman diimpor di Node: tidak menyentuh document/window saat dimuat.
 import { api } from './api.js';
 import {
-  h, icon, toast, openModal, confirmDialog, emptyState, field, todayInTz, fmtDay, fmtDate, fmtPhone, fmtNum, debounce,
+  h, icon, toast, openModal, confirmDialog, emptyState, field, todayInTz, nowHmInTz, fmtDay, fmtDate, fmtPhone, fmtNum, debounce,
 } from './ui.js';
 import {
   createGate, tableWrap, pagerNodes, rangeLabel, NO_CTX,
@@ -402,7 +402,7 @@ function openServicesEdit(d, onSaved) {
 
 // ======================= FORM TAMBAH / UBAH =====================
 // Validasi sisi klien yang sama dengan server. Mengembalikan { msg, key } atau null bila lolos.
-function validateForm(v, { today, original }) {
+function validateForm(v, { today, original, nowHm }) {
   const bad = (key, msg) => ({ key, msg });
   if (!v.user_id) return bad('user', 'Pilih user terlebih dahulu.');
   if (!v.customer) return bad('customer', 'Pilih customer terlebih dahulu.');
@@ -411,6 +411,8 @@ function validateForm(v, { today, original }) {
   if (!v.service_ids.length) return bad('services', 'Pilih minimal satu layanan.');
   if (v.service_ids.length > MAX_SERVICES) return bad('services', `Layanan maksimal ${MAX_SERVICES}.`);
   if (!/^\d{2}:\d{2}$/.test(v.start_time)) return bad('start', 'Jam mulai wajib diisi.');
+  const slotChanged = !original || original.day !== v.day || original.start_time !== v.start_time;
+  if (slotChanged && v.day === today && v.start_time < nowHm) return bad('start', `Jam mulai sudah lewat (sekarang pukul ${nowHm.replace(':', '.')} WIB). Pilih jam yang belum lewat.`);
   if (v.end_time && !/^\d{2}:\d{2}$/.test(v.end_time)) return bad('end', 'Jam selesai tidak valid.');
   if (v.end_time && v.end_time < v.start_time) return bad('end', 'Jam selesai tidak boleh sebelum jam mulai.');
   if (v.note.length > NOTE_MAX) return bad('note', `Catatan maksimal ${NOTE_MAX} karakter.`);
@@ -555,7 +557,7 @@ function openForm({ schedule, workers, ctx = NO_CTX, onSaved }) {
       user_id: Number(userSel.value) || 0, customer, day: day.value, start_time: start.value, end_time: end.value,
       note: note.value.trim(), service_ids: [...selected.keys()],
     };
-    const problem = validateForm(v, { today, original: editing ? schedule : null });
+    const problem = validateForm(v, { today, original: editing ? schedule : null, nowHm: nowHmInTz() });
     if (problem) {
       err.textContent = problem.msg;
       const target = {

@@ -20,6 +20,7 @@ function buildEnv(tmp, dataDir, overrides) {
   Object.assign(env, {
     HOME: tmp, PORT: '0', HOST: '127.0.0.1', DATA_DIR: dataDir,
     ADMIN_USERNAME: ADMIN.username, ADMIN_PASSWORD: ADMIN.password,
+    SLOT_CHECK: 'off', // tes lama membuat jadwal dengan jam apa pun; aturan jam lewat diuji di test/slot-passed.test.mjs
     SESSION_TIMER: 'off', // tes lama: SOAP langsung Selesai tanpa approve; tes soap-window menimpanya lewat `env`
   });
   for (const [k, v] of Object.entries(overrides)) {

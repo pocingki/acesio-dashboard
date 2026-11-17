@@ -5,6 +5,8 @@ import crypto from 'node:crypto';
 import readline from 'node:readline/promises';
 
 try { process.loadEnvFile(); } catch { /* opsional */ }
+// Data contoh memuat jadwal hari ini dengan jam yang bisa sudah lewat; aturan "jam lewat" dilewati hanya di skrip ini.
+process.env.SLOT_CHECK = 'off';
 
 const refuse = (lines) => {
   console.error('\n  Seed demo DITOLAK:');

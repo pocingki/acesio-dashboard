@@ -39,6 +39,16 @@ const addDaysYmd = (day, n) => {
   return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 };
 
+// true bila waktu jadwal (tanggal + jam mulai, WIB) sudah lewat. Jam mulai yang sama dengan menit sekarang masih boleh.
+export function slotPassed(day, startHm, at = now()) {
+  if (String(process.env.SLOT_CHECK ?? '').trim().toLowerCase() === 'off') return false; // hanya untuk tes data lama; ditolak di produksi (config.js)
+  const today = ymd(at);
+  if (day < today) return true;
+  if (day > today) return false;
+  return toMin(startHm) < minutesOfDay(at);
+}
+export const SLOT_PASSED_MESSAGE = 'Waktu jadwal sudah lewat. Pilih tanggal atau jam mulai yang belum lewat.';
+
 // true bila batas isi SOAP untuk jadwal bertanggal `day` sudah lewat.
 export function soapDeadlinePassed(day, at = now()) {
   const today = ymd(at);

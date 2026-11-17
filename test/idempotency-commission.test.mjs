@@ -170,7 +170,7 @@ test('approve tugas setelah bot, dan bot setelah approve, tidak menggandakan kom
   const setNow = (hhmm) => fs.writeFileSync(clockFile, at(hhmm));
   setNow('09:00');
   const timed = await startServer({
-    env: { NODE_ENV: 'test', APP_FAKE_NOW_FILE: clockFile, SESSION_TIMER: undefined, SESSION_MINUTES: '30', BOT_API_KEY: BOT_KEY },
+    env: { NODE_ENV: 'test', APP_FAKE_NOW_FILE: clockFile, SESSION_TIMER: undefined, SLOT_CHECK: 'off', SESSION_MINUTES: '30', BOT_API_KEY: BOT_KEY },
   });
   const db = new DatabaseSync(path.join(timed.dataDir, 'acesio.db'));
   try {
