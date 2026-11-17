@@ -8,7 +8,7 @@ import {
   createGate, tableWrap, pagerNodes, rangeLabel, NO_CTX,
 } from './customers.js';
 import {
-  schedulePill, fmtTimeRange, fmtLongDay, servicesSummary, STAFF_STATUS_FILTER, SOAP_PARTS, countdownEl,
+  schedulePill, fmtTimeRange, fmtLongDay, servicesSummary, STAFF_STATUS_FILTER, SOAP_PARTS,
 } from './schedule-ui.js';
 
 const isAbort = (e) => e?.name === 'AbortError';
@@ -47,8 +47,10 @@ async function busy(btns, fn) {
   }
 }
 
-// Approve = admin atau supervisor menyatakan pekerjaan terapis selesai (jadwal Selesai). Hanya setelah SOAP terisi dan hitung mundur habis.
-const canApprove = (s) => s.status === 'berjalan' && s.phase === 'menunggu';
+// Approve = admin atau supervisor menyatakan pekerjaan terapis selesai (jadwal Selesai). Hanya setelah SOAP terisi, pada hari jadwal atau besoknya sampai pukul 10.00 WIB.
+const canApprove = (s) => s.status === 'berjalan' && s.phase === 'menunggu' && s.can_approve !== false;
+// SOAP dan layanan bisa diubah admin/supervisor pada jadwal yang sedang dijalani (alur baru) atau sudah selesai.
+const canEditWork = (s) => s.status === 'selesai' || (s.status === 'berjalan' && !!s.phase);
 
 async function approveRequest(s, { onDone, btns }) {
   const label = `${s.customer?.name || 'customer'} (${s.user?.name || 'terapis'})`;
@@ -181,9 +183,7 @@ export function scheduleView(main, user, ctx = NO_CTX) {
         h('td', { 'data-label': 'Layanan', title: (s.services || []).map((x) => x.name).join(', ') }, servicesSummary(s.services)),
         h('td', { 'data-label': 'Catatan', class: 'sch-note' }, dash(s.note)),
         h('td', { 'data-label': 'Status' }, schedulePill(s.status, s.overdue, s.phase),
-          s.phase === 'timer' && !s.overdue
-            ? h('small', { class: 'sch-timer' }, countdownEl(s.remaining_sec, { signal: ctx.signal, label: 'Sisa', onDone: () => { if (ctx.isCurrent()) load({ silent: true }); } }))
-            : null),
+          s.phase === 'lewat' ? h('small', { class: 'sch-timer' }, 'SOAP belum diisi user') : null),
         h('td', { 'data-label': 'Aksi', class: 'sch-actions' }, h('div', { class: 'row-actions' }, actions)));
     }));
     return tableWrap(h('table', { class: 'sch-table' },
@@ -276,18 +276,28 @@ function openDetail(s, ctx = NO_CTX) {
     const soap = d.soap
       ? h('section', { class: 'sch-soap', 'aria-label': 'SOAP' },
         h('h3', { class: 'sch-sub' }, 'SOAP'),
-        h('p', { class: 'hint' }, 'Hanya baca. Diisi terapis sebelum hitung mundur dimulai.'),
+        h('p', { class: 'hint' }, 'Diisi terapis setelah pelayanan selesai. Admin dan supervisor bisa mengubahnya.'),
         SOAP_PARTS.map((p) => h('div', { class: 'sch-soap__part' },
           h('h4', null, `${p.key.toUpperCase()} · ${p.label}`),
           h('p', { class: 'sch-soap__text' }, d.soap[p.key] || '–'))))
       : null;
     const customer = d.customer || {};
     content.replaceChildren(
-      h('div', { class: 'summary-chips summary-chips--tight' }, schedulePill(d.status, d.overdue, d.phase),
-        d.phase === 'timer' && !d.overdue ? countdownEl(d.remaining_sec, { onDone: () => { if (ctx.isCurrent()) load(); } }) : null),
+      h('div', { class: 'summary-chips summary-chips--tight' }, schedulePill(d.status, d.overdue, d.phase)),
+      d.phase === 'lewat'
+        ? h('div', { class: 'sch-approve' }, h('p', null, `User tidak mengisi SOAP sampai pukul ${String(d.soap_deadline || '23:00').replace(':', '.')} WIB, jadi komisi belum berlaku. Isi SOAP lewat tombol Isi SOAP di bawah agar jadwal bisa di-approve.`))
+        : null,
+      d.phase === 'menunggu' && d.can_approve === false
+        ? h('div', { class: 'sch-approve' }, h('p', null, `Batas approve (hari jadwal atau besoknya sampai pukul ${String(d.approve_until || '10:00').replace(':', '.')} WIB) sudah lewat.`))
+        : null,
+      canEditWork(d)
+        ? h('div', { class: 'toolbar sch-tools' },
+          h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => openSoapEdit(d, load) }, d.soap ? 'Ubah SOAP' : 'Isi SOAP'),
+          h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => openServicesEdit(d, load) }, 'Ubah layanan'))
+        : null,
       canApprove(d) && !d.overdue
         ? h('div', { class: 'sch-approve' },
-          h('p', null, 'SOAP sudah diisi dan waktu layanan habis. Periksa SOAP di bawah, lalu approve untuk menyatakan pekerjaan terapis selesai; layanan dan komisi dicatat saat itu.'),
+          h('p', null, 'SOAP sudah diisi. Periksa SOAP dan layanan di bawah (tambahkan layanan bila customer meminta tambahan), lalu approve untuk menyatakan pekerjaan terapis selesai; layanan dan komisi dicatat saat itu.'),
           (() => { const b = h('button', { class: 'btn btn--primary', type: 'button' }, 'Approve pekerjaan'); b.addEventListener('click', () => approveRequest(d, { btns: b, onDone: load })); return b; })())
         : null,
       h('dl', { class: 'kv' },
@@ -298,7 +308,7 @@ function openDetail(s, ctx = NO_CTX) {
         row('Catatan', d.note || '–'),
         row('Dibuat oleh', d.created_by_name || '–'),
         d.started_at ? row('Dimulai', fmtDate(d.started_at)) : null,
-        d.due_at ? row('Hitung mundur sampai', fmtDate(d.due_at)) : null,
+        d.soap_at ? row('SOAP disimpan', fmtDate(d.soap_at)) : null,
         d.approved_at ? row('Di-approve', `${fmtDate(d.approved_at)}${d.approved_by_name ? ` oleh ${d.approved_by_name}` : ''}`) : null,
         d.completed_at ? row('Selesai', fmtDate(d.completed_at)) : null),
       h('h3', { class: 'sch-sub' }, `Layanan (${fmtNum((d.services || []).length)})`),
@@ -325,7 +335,71 @@ function openDetail(s, ctx = NO_CTX) {
   load();
 }
 
-// ======================= FORM TAMBAH / UBAH =======================
+// ======================= UBAH SOAP / LAYANAN (admin & supervisor) =======================
+function openSoapEdit(d, onSaved) {
+  const areas = SOAP_PARTS.map((p) => h('textarea', {
+    class: 'textarea', rows: '3', id: `se-${p.key}`, maxlength: '2000', placeholder: p.hint, 'aria-label': `${p.key.toUpperCase()} ${p.label}`,
+  }, d.soap?.[p.key] || ''));
+  const err = h('p', { class: 'error', role: 'alert', hidden: true });
+  const save = h('button', { class: 'btn btn--primary', type: 'button' }, 'Simpan SOAP');
+  const content = h('div', { class: 'sch-form' },
+    h('p', { class: 'hint' }, d.status === 'selesai' ? 'Perubahan SOAP pada jadwal selesai dicatat di log audit.' : 'Mengisi SOAP membuat jadwal siap di-approve.'),
+    ...SOAP_PARTS.map((p, i) => field(`${p.key.toUpperCase()} · ${p.label}`, areas[i])),
+    err, h('div', { class: 'toolbar' }, save));
+  const m = openModal({ title: d.soap ? 'Ubah SOAP' : 'Isi SOAP', content, wide: true });
+  save.addEventListener('click', () => busy(save, async () => {
+    err.hidden = true;
+    const soap = {};
+    SOAP_PARTS.forEach((p, i) => { soap[p.key] = areas[i].value; });
+    try {
+      await api(`/api/staff/schedules/${d.id}/soap`, { method: 'PATCH', body: { soap } });
+      toast('SOAP disimpan');
+      m.close();
+      if (onSaved) onSaved();
+    } catch (e) {
+      if (isAbort(e)) return;
+      err.textContent = e.message; err.hidden = false;
+    }
+  }));
+}
+
+function openServicesEdit(d, onSaved) {
+  const selected = new Set((d.services || []).map((s) => s.id));
+  const grid = h('div', { class: 'sch-svc-grid', role: 'group', 'aria-label': 'Pilih layanan' }, h('p', { class: 'muted' }, 'Memuat layanan…'));
+  const count = h('p', { class: 'hint', role: 'status' });
+  const err = h('p', { class: 'error', role: 'alert', hidden: true });
+  const save = h('button', { class: 'btn btn--primary', type: 'button' }, 'Simpan layanan');
+  const paint = () => { count.textContent = `${fmtNum(selected.size)} layanan dipilih`; };
+  const content = h('div', { class: 'sch-form' },
+    h('p', { class: 'hint' }, d.status === 'selesai'
+      ? 'Jadwal sudah selesai: layanan yang ditambah langsung tercatat beserta komisinya, layanan yang dihapus ikut dihapus dari catatan.'
+      : 'Layanan dicatat dan komisi dihitung saat jadwal di-approve.'),
+    count, grid, err, h('div', { class: 'toolbar' }, save));
+  const m = openModal({ title: 'Ubah layanan', content, wide: true });
+  paint();
+  api('/api/services').then(({ services }) => {
+    grid.replaceChildren(...services.map((s) => {
+      const input = h('input', { type: 'checkbox', checked: selected.has(s.id) ? true : null });
+      input.addEventListener('change', () => { if (input.checked) selected.add(s.id); else selected.delete(s.id); paint(); });
+      return h('label', { class: 'sch-svc' }, input, h('span', { class: 'sch-svc__num' }, String(s.position)), h('span', { class: 'sch-svc__name' }, s.name));
+    }));
+  }).catch((e) => { grid.replaceChildren(h('p', { class: 'error' }, `Layanan belum bisa dimuat: ${e.message}`)); });
+  save.addEventListener('click', () => busy(save, async () => {
+    err.hidden = true;
+    if (!selected.size) { err.textContent = 'Pilih minimal satu layanan.'; err.hidden = false; return; }
+    try {
+      await api(`/api/staff/schedules/${d.id}/services`, { method: 'PATCH', body: { service_ids: [...selected] } });
+      toast('Layanan diperbarui');
+      m.close();
+      if (onSaved) onSaved();
+    } catch (e) {
+      if (isAbort(e)) return;
+      err.textContent = e.message; err.hidden = false;
+    }
+  }));
+}
+
+// ======================= FORM TAMBAH / UBAH =====================
 // Validasi sisi klien yang sama dengan server. Mengembalikan { msg, key } atau null bila lolos.
 function validateForm(v, { today, original }) {
   const bad = (key, msg) => ({ key, msg });

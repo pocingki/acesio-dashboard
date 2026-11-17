@@ -1,6 +1,6 @@
 import { db } from '../db.js';
 import { HttpError, formatDateTime } from '../util.js';
-import { ymd } from '../clock.js';
+import { ymd, approvalOpen, approvalClosedMessage } from '../clock.js';
 import { periodWhere, recordSelect, sendExport, stamp, EMP_LABEL } from './helpers.js';
 import { logAudit } from '../audit.js';
 import { clientIp } from '../auth.js';
@@ -149,8 +149,8 @@ add('POST', '/api/staff/reviews', 'staff', ({ req, user, body }) => {
   if (!hasWork) throw new HttpError(400, 'User ini tidak punya jadwal atau data pada tanggal itu');
   const existing = db.prepare('SELECT late FROM day_reviews WHERE user_id = ? AND day = ?').get(target.id, body.day);
   if (existing && !isSv(user)) throw new HttpError(403, 'Sudah di-approve. Hanya supervisor yang bisa mengubahnya.');
-  // Approve baru hanya pada hari yang sama. Supervisor boleh mengubah status approve yang sudah ada (termasuk hari lalu).
-  if (!existing && body.day !== ymd()) throw new HttpError(409, 'Approve hanya bisa dilakukan pada hari yang sama. Data tanggal yang sudah lewat tidak bisa di-approve.');
+  // Approve baru: pada hari yang sama, atau besoknya sampai APPROVE_UNTIL (10.00 WIB). Supervisor boleh mengubah status approve yang sudah ada (termasuk hari lalu).
+  if (!existing && !approvalOpen(body.day)) throw new HttpError(409, approvalClosedMessage());
   const late = body.late ? 1 : 0;
   // Supervisor mengirim status yang sama: tidak ada yang berubah, jadi tidak ditulis dan tidak dicatat.
   if (existing && existing.late === late) return { ok: true, unchanged: true };

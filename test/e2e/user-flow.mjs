@@ -41,7 +41,7 @@ const ymdOf = (d) => dayFmt.format(d);
 const TODAY = () => ymdOf(new Date());
 const TOMORROW = () => ymdOf(new Date(Date.now() + 86400000));
 
-let main; // server utama (jam akses dimatikan supaya tes tidak bergantung pada jam mesin)
+let main; // server utama 
 let browser;
 let userSeq = 0;
 let schedSeq = 0;
@@ -65,14 +65,14 @@ async function api(srv, method, url, body, cookie = srv.adminCookie) {
 }
 const adminApi = (method, url, body) => api(main, method, url, body);
 
-// Menyalakan satu server dengan DATA_DIR sendiri. `env` menimpa lingkungan; ACCESS_HOURS bawaan di sini = off.
+// Menyalakan satu server dengan DATA_DIR sendiri. `env` menimpa lingkungan.
 async function startServer(env = {}) {
   const dataDir = mkdtempSync(path.join(os.tmpdir(), 'acesio-e2e-'));
   const port = await freePort();
   const url = `http://127.0.0.1:${port}`;
   const proc = spawn(process.execPath, ['--no-warnings', 'server/index.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: dataDir, ADMIN_USERNAME: ADMIN.username, ADMIN_PASSWORD: ADMIN.password, BOT_API_KEY: '', ACCESS_HOURS: 'off', ...env },
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: dataDir, ADMIN_USERNAME: ADMIN.username, ADMIN_PASSWORD: ADMIN.password, BOT_API_KEY: '', ...env },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
   proc.stdout.resume();
@@ -414,38 +414,27 @@ test('lonceng: tugas baru, sedang dijalani, selesai; membuka notifikasi menuju J
   } finally { await context.close(); }
 });
 
-// ---------------------------------------------------------------- jam akses
-test('jam akses: login ditolak di luar jam, sesi berjalan dicabut saat jam lewat, admin tidak dibatasi', { skip: SKIP }, async () => {
+// ---------------------------------------------------------------- tanpa batas jam login
+test('tanpa batas jam: user bisa login dan memakai aplikasi pukul 23.30 dan 03.00, admin juga', { skip: SKIP }, async () => {
   // Jam server dikendalikan lewat berkas (hanya dibaca bila NODE_ENV=test; tidak boleh dipakai di produksi).
   const clockFile = path.join(mkdtempSync(path.join(os.tmpdir(), 'acesio-clock-')), 'now.txt');
   const at = (hhmmWib) => { // jam WIB (UTC+7) pada hari ini -> waktu ISO UTC
     const [h, m] = hhmmWib.split(':').map(Number);
     return new Date(Date.parse(`${TODAY()}T00:00:00Z`) + ((h - 7) * 60 + m) * 60000).toISOString();
   };
-  writeFileSync(clockFile, at('23:30')); // di luar 06.00-23.00
-  const srv = await startServer({ NODE_ENV: 'test', APP_FAKE_NOW_FILE: clockFile, ACCESS_HOURS: '06:00-23:00' });
+  writeFileSync(clockFile, at('23:30'));
+  const srv = await startServer({ NODE_ENV: 'test', APP_FAKE_NOW_FILE: clockFile });
   const u = await newUser(srv);
   const { context, page } = u;
   try {
-    await page.goto(srv.base);
-    await page.fill('#u', u.username);
-    await page.fill('#p', USER_PASSWORD);
-    await page.click('button[type=submit]');
-    await page.waitForFunction(() => /pukul 06\.00/.test(document.querySelector('.login .error')?.textContent || ''));
-    assert.equal(await page.locator('.tabs').count(), 0, 'tidak masuk di luar jam akses');
-
-    // Admin/supervisor tidak dibatasi pada jam yang sama.
-    const adminRes = await fetch(`${srv.base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ADMIN) });
-    assert.equal(adminRes.status, 200);
-
-    // Dalam jam: bisa masuk. Lewat pukul 23.00: sesi dicabut pada permintaan berikutnya dan layar login memuat pesannya.
-    writeFileSync(clockFile, at('10:00'));
     await login(page, u.username, srv);
     await page.waitForSelector('.home-hero');
-    writeFileSync(clockFile, at('23:05'));
+    writeFileSync(clockFile, at('03:00'));
     await tab(page, 'Jadwal Saya').click();
-    await page.waitForSelector('.login');
-    assert.match(await page.locator('.login .error').innerText(), /pukul 06\.00.23\.00/);
+    await page.waitForSelector('.us-list, .empty, .state');
+    assert.equal(await page.locator('.login').count(), 0, 'sesi tidak dicabut di luar jam malam');
+    const adminRes = await fetch(`${srv.base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ADMIN) });
+    assert.equal(adminRes.status, 200);
   } finally {
     await context.close();
     stopServer(srv);

@@ -65,7 +65,7 @@ test('groupByDay mengelompokkan per tanggal dan menjaga urutan dalam kelompok', 
 test('rowAction mengikuti aturan klik', () => {
   assert.equal(rowAction({ status: 'baru', day: TODAY }, TODAY), 'start');
   assert.equal(rowAction({ status: 'berjalan', day: TODAY }, TODAY), 'start', 'jadwal lama tanpa fase tetap bisa diisi');
-  assert.equal(rowAction({ status: 'berjalan', phase: 'timer', day: TODAY }, TODAY), 'wait');
+  assert.equal(rowAction({ status: 'berjalan', phase: 'menunggu', day: TODAY }, TODAY), 'wait');
   assert.equal(rowAction({ status: 'berjalan', phase: 'menunggu', day: TODAY }, TODAY), 'wait');
   assert.equal(rowAction({ status: 'berjalan', phase: 'soap', day: TODAY }, TODAY), 'start', 'sudah Mulai: wajib isi SOAP dulu');
   assert.equal(rowAction({ status: 'selesai', day: '2026-11-01' }, TODAY), 'detail');
@@ -89,6 +89,6 @@ test('needsPolling: hanya bila ada tugas yang statusnya berubah sendiri', () => 
   assert.equal(needsPolling([]), false);
   assert.equal(needsPolling(undefined), false);
   assert.equal(needsPolling([{ status: 'baru' }, { status: 'selesai' }, { status: 'berjalan', phase: 'soap' }, { status: 'berjalan', phase: null }]), false);
-  assert.equal(needsPolling([{ status: 'baru' }, { status: 'berjalan', phase: 'timer' }]), true);
+  assert.equal(needsPolling([{ status: 'baru' }, { status: 'berjalan', phase: 'menunggu' }]), true);
   assert.equal(needsPolling([{ status: 'berjalan', phase: 'menunggu' }]), true);
 });

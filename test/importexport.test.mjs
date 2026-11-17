@@ -285,3 +285,24 @@ test('importCustomers dengan file jahat -> 400 dari awal sampai akhir', () => {
   assert.ok(is400(err) && ms < 200);
   assert.ok(is400(timed(() => importCustomers('xlsx', Buffer.from('PK\u0003\u0004 bukan zip sungguhan, hanya awalan saja').toString('base64'))).err));
 });
+test('unggah ulang data customer (data lama + baru): tidak ada duplikat, data lama diperbarui, sel kosong tidak menghapus', () => {
+  const head = 'No RM,Nama,No HP,Domisili\n';
+  const day1 = `${head}RM-DUP1,Ani Lestari,081200000001,Bandung\nRM-DUP2,Budi Santoso,081200000002,Jakarta\n`;
+  const r1 = importCustomers('csv', day1);
+  assert.equal(r1.added, 2);
+  const count = (rm) => db.prepare('SELECT COUNT(*) AS n FROM customers WHERE rm_no = ? COLLATE NOCASE').get(rm).n;
+  const total = () => db.prepare("SELECT COUNT(*) AS n FROM customers WHERE rm_no LIKE 'RM-DUP%'").get().n;
+  // Hari berikutnya: semua data lama + data baru. Ani diberi huruf kecil dan spasi, Budi dengan domisili kosong.
+  const day2 = `${head}rm-dup1 ,Ani Lestari,081200000001,Surabaya\nRM-DUP2,Budi Santoso,081200000002,\nRM-DUP3,Citra Dewi,081200000003,Medan\n`;
+  const r2 = importCustomers('csv', day2);
+  assert.equal(r2.added, 1, 'hanya data baru yang ditambah');
+  assert.equal(r2.updated, 2, 'data lama diperbarui, bukan digandakan');
+  assert.equal(total(), 3);
+  assert.equal(count('RM-DUP1'), 1);
+  assert.equal(db.prepare("SELECT domicile FROM customers WHERE rm_no = 'RM-DUP1'").get().domicile, 'Surabaya');
+  assert.equal(db.prepare("SELECT domicile FROM customers WHERE rm_no = 'RM-DUP2'").get().domicile, 'Jakarta', 'sel kosong tidak menghapus');
+  // Unggah file yang sama sekali lagi: tidak ada yang bertambah.
+  const r3 = importCustomers('csv', day2);
+  assert.equal(r3.added, 0);
+  assert.equal(total(), 3);
+});

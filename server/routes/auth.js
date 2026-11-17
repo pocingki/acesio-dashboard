@@ -2,20 +2,17 @@ import { add, LIMITS } from './index.js';
 import { db } from '../db.js';
 import { HttpError, cleanName, saveDataUrlImage, removeUpload } from '../util.js';
 import { login, cookieHeader, destroySession, changePassword, clientIp, isSecure, assertPassword } from '../auth.js';
-import { accessInfo } from '../clock.js';
 import { logAudit } from '../audit.js';
 
 const tz = () => process.env.APP_TZ || 'Asia/Jakarta';
 const publicUser = ({ id, username, name, role, photo }) => ({ id, username, name, role, photo: photo || null });
-// Hanya role user yang punya batas jam akses (null bila ACCESS_HOURS=off).
-const withAccess = (user) => (user.role === 'user' ? { access: accessInfo() } : {});
 
 add('POST', '/api/auth/login', 'public', async ({ req, res, body }) => {
   // Throttle ada di dalam login(): melempar HttpError(429) bila terlalu banyak percobaan.
   const result = await login(String(body.username ?? ''), String(body.password ?? ''), { ip: clientIp(req) });
   if (!result) throw new HttpError(401, 'Username atau password salah');
   res.setHeader('Set-Cookie', cookieHeader(result.token, isSecure(req)));
-  return { user: publicUser(result.user), tz: tz(), ...withAccess(result.user) };
+  return { user: publicUser(result.user), tz: tz() };
 }, { limit: LIMITS.login });
 
 add('POST', '/api/auth/logout', 'user', ({ req, res, user }) => {
@@ -24,7 +21,7 @@ add('POST', '/api/auth/logout', 'user', ({ req, res, user }) => {
   return { ok: true };
 });
 
-add('GET', '/api/auth/me', 'user', ({ user }) => ({ user: publicUser(user), tz: tz(), ...withAccess(user) }));
+add('GET', '/api/auth/me', 'user', ({ user }) => ({ user: publicUser(user), tz: tz() }));
 
 add('POST', '/api/auth/password', 'user', async ({ req, user, body }) => {
   const next = String(body.next ?? '');

@@ -3,13 +3,13 @@
 // Fungsi murni di bagian atas diekspor untuk tes; modul ini tidak menyentuh document saat dimuat.
 import { api } from './api.js';
 import { h, icon, toast, openModal, todayInTz, fmtDay } from './ui.js';
-import { schedulePill, fmtLongDay, servicesSummary, SOAP_PARTS, countdownEl } from './schedule-ui.js';
+import { schedulePill, fmtLongDay, servicesSummary, SOAP_PARTS } from './schedule-ui.js';
 
 export const RANGE_ERROR = 'Tanggal awal tidak boleh setelah tanggal akhir';
 export const TRUNCATED_NOTE = 'Menampilkan 500 jadwal pertama, persempit rentang tanggal';
 export const MSG_NOT_TODAY = 'Jadwal ini bukan untuk hari ini. Jadwal hanya bisa dijalankan pada tanggalnya.';
 export const MSG_OVERDUE = 'Jadwal terlewat, hubungi admin.';
-export const MSG_WAIT_TIMER = 'SOAP sudah disimpan dan hitung mundur berjalan. Setelah waktu habis, tugas menunggu approve admin atau supervisor.';
+export const MSG_WAIT_TIMER = 'SOAP sudah disimpan. Tugas menunggu approve admin atau supervisor.';
 export const MSG_WAIT_APPROVAL = 'SOAP sudah disimpan dan waktu habis. Menunggu approve admin atau supervisor; setelah disetujui tugas Selesai.';
 export const POLL_MS = 15_000; // segarkan senyap selama ada tugas yang menunggu approve
 
@@ -62,19 +62,19 @@ export function groupByDay(schedules) {
 }
 
 // 'start' | 'wait' | 'detail' | 'overdue' | 'future' | 'none'
-// 'wait' = SOAP sudah disimpan: sedang hitung mundur atau menunggu approve (tidak ada yang perlu dilakukan user).
+// 'wait' = SOAP sudah disimpan (menunggu approve) atau batas SOAP terlewat: tidak ada yang bisa dilakukan user.
 // 'start' = boleh Mulai (Baru) atau isi SOAP (berjalan, SOAP belum disimpan).
 export function rowAction(s, today) {
   if (s.status === 'batal') return 'none';
   if (s.status === 'selesai') return 'detail';
   if (s.overdue || s.day < today) return 'overdue';
   if (s.day > today) return 'future';
-  if (s.status === 'berjalan' && (s.phase === 'timer' || s.phase === 'menunggu')) return 'wait';
+  if (s.status === 'berjalan' && (s.phase === 'lewat' || s.phase === 'menunggu')) return 'wait';
   return 'start';
 }
 
-// Ada jadwal yang statusnya akan berubah sendiri (hitung mundur atau menunggu approve)?
-export const needsPolling = (list) => (list || []).some((s) => s.status === 'berjalan' && (s.phase === 'timer' || s.phase === 'menunggu'));
+// Ada jadwal yang statusnya akan berubah sendiri (menunggu approve)?
+export const needsPolling = (list) => (list || []).some((s) => s.status === 'berjalan' && s.phase === 'menunggu');
 
 export function summaryParts(summary) {
   const sm = summary || {};
@@ -186,7 +186,7 @@ export function scheduleView(main, user, ctx, { goTo } = {}) {
       h('div', { class: 'us-retry' }, h('button', { class: 'btn btn--primary btn--sm', type: 'button', onclick: () => load() }, 'Coba lagi'))));
   }
 
-  // silent = segarkan tanpa tulisan "Memuat" (dipakai saat hitung mundur habis dan saat polling approve).
+  // silent = segarkan tanpa tulisan "Memuat" (dipakai saat polling approve).
   async function load({ silent = false } = {}) {
     const mine = ++seq;
     stopPoll();
@@ -232,12 +232,12 @@ export function scheduleView(main, user, ctx, { goTo } = {}) {
     const cust = s.customer || {};
     const svc = servicesSummary(s.services || []);
     const idle = action === 'start' && s.status === 'baru'; // jadwal Baru: hanya tombol Mulai yang memulai
-    const waiting = action === 'wait'; // hitung mundur / menunggu approve: tidak bisa diklik
+    const waiting = action === 'wait'; // menunggu approve / SOAP terlambat: tidak bisa diklik
     const inert = idle || waiting;
     const status = waiting
-      ? (s.phase === 'timer'
-        ? h('span', { class: 'us-card__cta us-card__wait' }, countdownEl(s.remaining_sec, { signal, onDone: () => { if (ctx.isCurrent()) load({ silent: true }); } }))
-        : h('span', { class: 'us-card__cta us-card__wait', role: 'status' }, 'Waktu habis. Menunggu approve admin/supervisor…'))
+      ? h('span', { class: 'us-card__cta us-card__wait', role: 'status' }, s.phase === 'lewat'
+        ? 'Batas isi SOAP (23.00 WIB) terlewat. Hubungi admin atau supervisor.'
+        : 'SOAP tersimpan. Menunggu approve admin/supervisor…')
       : null;
     const btn = h(inert ? 'div' : 'button', {
       class: `us-item us-item--${tone}${waiting ? ` us-item--${s.phase}` : ''}`, type: inert ? null : 'button', disabled: action === 'none' ? true : null,
@@ -255,7 +255,7 @@ export function scheduleView(main, user, ctx, { goTo } = {}) {
       s.note ? h('span', { class: 'us-card__note' }, s.note) : null,
       status,
       idle ? h('span', { class: 'us-card__cta' }, h('button', { class: 'btn btn--primary btn--sm', type: 'button', onclick: (e) => mulaiTugas(s, e.currentTarget) }, 'Mulai'))
-        : action === 'start' ? h('span', { class: 'us-card__cta' }, 'Isi SOAP dulu, hitung mundur mulai setelah disimpan →') : null));
+        : action === 'start' ? h('span', { class: 'us-card__cta' }, 'Isi SOAP setelah pelayanan selesai (paling lambat 23.00 WIB) →') : null));
     return h('li', null, btn);
   }
 
@@ -276,9 +276,9 @@ export function scheduleView(main, user, ctx, { goTo } = {}) {
     try {
       await api(`/api/my/schedules/${s.id}/start`, { method: 'POST', signal });
       if (!ctx.isCurrent()) return;
-      // Alur: Mulai -> wajib isi SOAP -> baru hitung mundur berjalan. Langsung buka form SOAP.
+      // Alur: Mulai -> pelayanan -> isi SOAP (paling lambat 23.00 WIB) -> approve. Langsung buka form SOAP.
       if (typeof goTo === 'function') { goTo('input', { scheduleId: s.id }); return; }
-      toast('Tugas dimulai. Isi SOAP dulu; hitung mundur berjalan setelah SOAP disimpan.');
+      toast('Tugas dimulai. Isi SOAP setelah pelayanan selesai, paling lambat pukul 23.00 WIB.');
       load();
     } catch (e) {
       if (isAbort(e) || !ctx.isCurrent()) return;

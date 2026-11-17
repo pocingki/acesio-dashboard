@@ -1,6 +1,6 @@
 # Uji manual sisi klien (e2e)
 
-Perilaku klien (DOM, fetch dari browser, zona waktu browser) tidak bisa diuji dengan `node --test` tanpa dependensi. Temuan klien **#6, #9, #10, #11** dan alur baru v1.3.0 (Beranda, Jadwal Saya, SOAP, lonceng, jam akses) diuji dengan skenario di bawah. Jalankan sebelum rilis dan setiap kali `public/js/ui.js`, `api.js`, `shell.js`, atau tampilan apa pun di `public/js/` berubah.
+Perilaku klien (DOM, fetch dari browser, zona waktu browser) tidak bisa diuji dengan `node --test` tanpa dependensi. Temuan klien **#6, #9, #10, #11** dan alur baru v1.3.0 (Beranda, Jadwal Saya, SOAP, lonceng) diuji dengan skenario di bawah. Jalankan sebelum rilis dan setiap kali `public/js/ui.js`, `api.js`, `shell.js`, atau tampilan apa pun di `public/js/` berubah.
 
 > **Pemetaan.** Nomor mengikuti rencana perbaikan: #6 tab bercampur, #9 unduhan, #10 pesan 413, #11 modal. Skenario zona waktu adalah tambahan (kontrak G). Skenario **A sampai E** adalah alur baru v1.3.0.
 
@@ -22,7 +22,7 @@ Password    : <acak>   (acak, hanya tampil sekali ini; catat sekarang)
 
 Seed juga mencetak ringkasan jadwal, mis. `Jadwal : 9 untuk hari ini (4 baru, 2 berjalan, 2 selesai, 1 batal), 1 untuk besok.` Ketiga akun user demo (sari, budi, dewi) memakai **satu password acak yang sama**; di bawah disebut `<user-demo>` dan `<password-seed>`. Akun supervisor: `admin` / `admin-pass-123` (dari `ADMIN_PASSWORD` di atas; bila belum ada, seed yang membuatnya).
 
-> **Jam akses.** Login user hanya bisa pukul 06.00–22.59 (zona `APP_TZ`). Bila Anda menguji di luar jam itu, login user ditolak. Itu perilaku yang benar (skenario E); untuk menguji skenario lain, jalankan server dengan `ACCESS_HOURS=off npm start`.
+> **Jam login.** Tidak ada batas jam login untuk admin, supervisor, maupun user; skenario bisa dijalankan kapan saja.
 >
 > **Jadwal demo dibuat untuk tanggal saat seed dijalankan.** Bila server baru dinyalakan keesokan harinya, jadwal "hari ini" itu sudah lewat (tampil *Terlewat*). Hapus `DATA_DIR` dan seed ulang, atau buat jadwal baru lewat tab **Jadwal** sebagai supervisor. Jika Anda menjalankan seed ulang pada database yang sama, seed menolak (kecuali `--force` dengan ketikan `SAYA YAKIN`); hapus `DATA_DIR` untuk mulai bersih.
 
@@ -30,7 +30,7 @@ Buka http://localhost:3000 di Chrome dan satu browser lain. DevTools → Network
 
 ## Skenario otomatis alur baru (v1.3.0)
 
-`node test/e2e/user-flow.mjs` menjalankan semuanya sendiri (server sementara, akun dan jadwal lewat API, jam akses dimatikan kecuali pada skenario E). Cara menjalankan: pasang Playwright + Chromium (bukan dependensi repo), lalu `NODE_PATH=<folder node_modules global> node test/e2e/user-flow.mjs`. Skrip ini tidak ikut `npm test`; di luar itu cukup `node --check test/e2e/user-flow.mjs`. Skenario manual di bawah memeriksa hal yang sama dengan mata manusia (tata letak, ponsel).
+`node test/e2e/user-flow.mjs` menjalankan semuanya sendiri (server sementara, akun dan jadwal lewat API, tanpa batas jam). Cara menjalankan: pasang Playwright + Chromium (bukan dependensi repo), lalu `NODE_PATH=<folder node_modules global> node test/e2e/user-flow.mjs`. Skrip ini tidak ikut `npm test`; di luar itu cukup `node --check test/e2e/user-flow.mjs`. Skenario manual di bawah memeriksa hal yang sama dengan mata manusia (tata letak, ponsel).
 
 ## A. Alur utama: Beranda, Jadwal Saya, SOAP
 
@@ -67,12 +67,11 @@ Buka http://localhost:3000 di Chrome dan satu browser lain. DevTools → Network
 4. **Batalkan**: admin hanya pada jadwal Baru; supervisor juga pada jadwal Sedang dijalani.
 5. Admin tidak pernah melihat angka komisi di layar mana pun.
 
-## E. Jam akses user
+## E. Tanpa batas jam login
 
-1. Otomatis: skrip memajukan jam server palsu (`APP_FAKE_NOW_FILE`, hanya berlaku dengan `NODE_ENV=test`) ke 23.30: login user ditolak dengan pesan *pukul 06.00–23.00*; admin tetap bisa login. Jam dimundurkan ke 10.00: user masuk. Jam dimajukan ke 23.05: aksi berikutnya mengembalikan user ke layar login dengan pesan jam akses.
-2. Manual: jalankan server dengan `ACCESS_HOURS` yang jendelanya tidak mencakup jam sekarang (mis. `ACCESS_HOURS=03:00-03:30` bila sekarang siang). Login user ditolak dengan pesan jelas di layar login; login supervisor tetap berhasil.
-3. Jalankan dengan `ACCESS_HOURS=off`: user bisa masuk kapan saja.
-4. `APP_FAKE_NOW_FILE` tanpa `NODE_ENV=test` **tidak** berpengaruh (jam asli dipakai). Pastikan variabel itu tidak ada di berkas lingkungan produksi.
+1. Otomatis: skrip memajukan jam server palsu (`APP_FAKE_NOW_FILE`, hanya berlaku dengan `NODE_ENV=test`) ke 23.30 lalu 03.00: user tetap bisa login dan memakai aplikasi, sesi tidak dicabut; admin juga bisa login.
+2. Manual: login sebagai user, supervisor, dan admin pada jam malam atau dini hari. Semuanya berhasil.
+3. `APP_FAKE_NOW_FILE` tanpa `NODE_ENV=test` **tidak** berpengaruh (jam asli dipakai). Pastikan variabel itu tidak ada di berkas lingkungan produksi.
 
 ## #6: tab bercampur dan hasil permintaan basi menimpa tampilan
 
@@ -123,7 +122,7 @@ Kode lama: `ui.js` memakai `TZ = 'Asia/Jakarta'` dan `+07:00` permanen; server m
 1. Hentikan server, jalankan dengan zona yang **tanggalnya berbeda dari Jakarta saat Anda menguji**: `APP_TZ=Pacific/Auckland` (sekitar 6 jam di depan WIB) bila Anda menguji antara 18:00–24:00 WIB, atau `APP_TZ=America/Los_Angeles` (sekitar 14–15 jam di belakang WIB) bila antara 00:00–14:00 WIB. Di luar jendela itu tanggalnya sama dan skenario tidak membuktikan apa-apa.
 2. Login sebagai `<user-demo>`. Di Console: `await (await fetch('/api/auth/me')).json()` harus memuat `tz` sesuai zona yang Anda pilih.
 3. Sebagai supervisor buat jadwal **hari ini** (menurut server) untuk `<user-demo>`; sebagai user jalankan dan selesaikan jadwal itu (isi SOAP). Buka Riwayat Customer: tanggal item **sama** dengan "hari ini" menurut server dan tombol hapus tersedia untuk item itu. Beranda dan Jadwal Saya juga menampilkan jadwal itu sebagai hari ini. Kolom hari di Laporan/Detail user menampilkan tanggal yang benar, bukan bergeser sehari.
-4. **Gagal bila:** filter periode bawaan ("hari ini") kosong padahal data baru saja diinput, jadwal hari ini tampil sebagai *Terlewat* atau *bukan untuk hari ini*, atau tanggal bergeser satu hari. Jam akses juga mengikuti zona ini: pada `APP_TZ` yang jamnya di luar 06.00–23.00 saat Anda menguji, login user akan ditolak (gunakan `ACCESS_HOURS=off`).
+4. **Gagal bila:** filter periode bawaan ("hari ini") kosong padahal data baru saja diinput, jadwal hari ini tampil sebagai *Terlewat* atau *bukan untuk hari ini*, atau tanggal bergeser satu hari.
 5. Kontrol: ulangi dengan `APP_TZ` default (Jakarta); hasilnya harus tetap benar.
 
 ## Tambahan: daftar customer ringkas (Riwayat user dan Approve)

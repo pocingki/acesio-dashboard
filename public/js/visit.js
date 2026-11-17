@@ -1,11 +1,11 @@
 // Halaman isi SOAP (dulu tab "Input Customer") untuk user: bekerja HANYA dari jadwal (D3, D12).
 // Customer dan layanan sudah ditentukan admin; user hanya mengisi SOAP kunjungan (S/O/A/P, semua wajib)
-// lalu menyimpan. Alur baru: SOAP wajib diisi dulu, baru hitung mundur berjalan; layanan tercatat dan jadwal Selesai
+// lalu menyimpan. Alur baru: SOAP diisi saat pelayanan selesai (paling lambat 23.00 WIB); layanan tercatat dan jadwal Selesai
 // saat admin/supervisor approve setelah waktu habis. Jadwal lama (tanpa alur ini) tetap selesai langsung saat Simpan.
 // Modul ini tidak menyentuh document/window saat dimuat (aman diimpor tes Node).
 import { api } from './api.js';
 import { h, toast, emptyState, todayInTz } from './ui.js';
-import { SOAP_PARTS, fmtTimeRange, fmtLongDay, schedulePill, countdownEl } from './schedule-ui.js';
+import { SOAP_PARTS, fmtTimeRange, fmtLongDay, schedulePill } from './schedule-ui.js';
 
 export const SOAP_MIN = 3;
 export const SOAP_MAX = 2000;
@@ -71,9 +71,9 @@ export function visitBlockReason(schedule, today) {
       ? 'Jadwal ini sudah terlewat. Jadwal hari lampau hanya bisa dilihat, tidak bisa dijalankan.'
       : 'Jadwal ini bukan untuk hari ini. Jadwal hanya bisa dijalankan pada harinya.';
   }
-  if (schedule.status === 'baru') return 'Tekan Mulai dulu di Jadwal Saya. Setelah itu isi SOAP; hitung mundur berjalan setelah SOAP disimpan.';
-  if (schedule.status === 'berjalan' && schedule.phase === 'timer') return 'SOAP sudah disimpan dan hitung mundur sedang berjalan. Setelah waktu habis, tugas menunggu approve admin atau supervisor.';
-  if (schedule.status === 'berjalan' && schedule.phase === 'menunggu') return 'SOAP sudah disimpan dan waktu habis. Menunggu approve admin atau supervisor; setelah disetujui tugas Selesai.';
+  if (schedule.status === 'baru') return 'Tekan Mulai dulu di Jadwal Saya. Setelah pelayanan selesai, isi SOAP paling lambat pukul 23.00 WIB.';
+  if (schedule.status === 'berjalan' && schedule.phase === 'lewat') return 'Batas mengisi SOAP (pukul 23.00 WIB) sudah lewat, jadi komisi tugas ini tidak berlaku. Hubungi admin atau supervisor bila perlu diperbaiki.';
+  if (schedule.status === 'berjalan' && schedule.phase === 'menunggu') return 'SOAP sudah disimpan. Menunggu approve admin atau supervisor (hari yang sama, atau besok sampai pukul 10.00 WIB); setelah disetujui tugas Selesai.';
   return null;
 }
 
@@ -130,16 +130,13 @@ export async function visitView(main, user, ctx, { goTo, params } = {}) {
   if (blocked) {
     main.replaceChildren(h('div', { class: 'visit' },
       customerCard(schedule),
-      schedule.status === 'berjalan' && schedule.phase === 'timer'
-        ? h('div', { class: 'visit__countdown' }, countdownEl(schedule.remaining_sec, { signal, onDone: () => { if (ctx.isCurrent()) goTo('schedule'); } }))
-        : null,
-      emptyState(schedule.status === 'berjalan' && schedule.phase ? 'SOAP sudah disimpan' : 'Jadwal tidak bisa diisi', blocked),
+      emptyState(schedule.status === 'berjalan' && schedule.phase === 'menunggu' ? 'SOAP sudah disimpan' : 'Jadwal tidak bisa diisi', blocked),
       h('div', { class: 'visit__actions' }, backBtn('Kembali ke Jadwal Saya'))));
     return;
   }
 
   const head = h('div', { class: 'page-head' },
-    h('div', null, h('h1', null, 'Isi SOAP kunjungan'), h('p', { class: 'muted' }, 'Isi SOAP dulu. Setelah disimpan, hitung mundur berjalan; saat waktu habis tugas menunggu approve admin atau supervisor.')),
+    h('div', null, h('h1', null, 'Isi SOAP kunjungan'), h('p', { class: 'muted' }, 'Isi SOAP setelah pelayanan selesai, paling lambat pukul 23.00 WIB. Setelah disimpan, tugas menunggu approve admin atau supervisor.')),
     h('div', { class: 'toolbar' }, h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: toSchedule }, 'Jadwal Saya')));
 
   if (schedule.status === 'selesai') {
@@ -219,8 +216,8 @@ export async function visitView(main, user, ctx, { goTo, params } = {}) {
       });
       mem.drafts.delete(sid);
       mem.keys.delete(sid);
-      toast(saved?.schedule?.phase === 'timer'
-        ? `SOAP tersimpan. Hitung mundur ${schedule.customer.name} dimulai; setelah waktu habis menunggu approve.`
+      toast(saved?.schedule?.phase === 'menunggu'
+        ? `SOAP tersimpan. ${schedule.customer.name} menunggu approve admin atau supervisor.`
         : `SOAP tersimpan. Tugas ${schedule.customer.name} selesai.`);
       busy = false;
       if (ctx.isCurrent()) toSchedule();

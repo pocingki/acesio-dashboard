@@ -1,11 +1,11 @@
 // Beranda user ("personal workspace"): sapaan, empat kartu statistik pribadi, dan Jadwal Saya Hari Ini (hanya tugas Baru + Berjalan; yang Selesai pindah ke tab Jadwal Saya).
 // Data dari GET /api/my/home (hanya jadwal milik user yang login); dimuat ulang setiap tab dibuka.
 // Tombol Mulai (jadwal Baru -> Sedang berjalan) ada di daftar dan langsung membuka form SOAP (wajib). Setelah SOAP disimpan
-// hitung mundur berjalan; saat habis tugas menunggu approve admin/supervisor, lalu Selesai. Tidak ada yang mulai otomatis.
+// paling lambat 23.00 WIB; tugas lalu menunggu approve admin/supervisor, lalu Selesai. Tidak ada yang mulai otomatis.
 // Modul ini tidak menyentuh document/window saat dimuat.
 import { api } from './api.js';
 import { h, icon, emptyState, fmtNum, todayInTz, toast } from './ui.js';
-import { schedulePill, fmtTimeRange, fmtLongDay, servicesSummary, countdownEl } from './schedule-ui.js';
+import { schedulePill, fmtTimeRange, fmtLongDay, servicesSummary } from './schedule-ui.js';
 
 export const HOME_POLL_MS = 15_000; // segarkan senyap selama ada tugas yang menunggu approve
 
@@ -69,7 +69,7 @@ export function homeView(main, user, ctx, { goTo }) {
     try {
       await api(`/api/my/schedules/${s.id}/start`, { method: 'POST', signal });
       if (!ctx.isCurrent()) return;
-      goTo('input', { scheduleId: s.id }); // wajib isi SOAP dulu; hitung mundur berjalan setelah SOAP disimpan
+      goTo('input', { scheduleId: s.id }); // isi SOAP saat pelayanan selesai
       return;
     } catch (e) {
       if (e.aborted || !ctx.isCurrent()) return;
@@ -88,8 +88,8 @@ export function homeView(main, user, ctx, { goTo }) {
     if (s.status === 'baru') {
       const btn = h('button', { class: 'btn btn--primary btn--sm', type: 'button', onclick: () => mulai(s, btn) }, 'Mulai');
       action = btn;
-    } else if (s.status === 'berjalan' && s.phase === 'timer') {
-      action = countdownEl(s.remaining_sec, { signal, onDone: () => { if (ctx.isCurrent()) load({ silent: true }); } });
+    } else if (s.status === 'berjalan' && s.phase === 'lewat') {
+      action = h('span', { class: 'hitem__wait', role: 'status' }, 'SOAP terlambat');
     } else if (s.status === 'berjalan' && s.phase === 'menunggu') {
       action = h('span', { class: 'hitem__wait', role: 'status' }, 'Menunggu approve');
     } else if (s.status === 'berjalan') {
@@ -109,15 +109,15 @@ export function homeView(main, user, ctx, { goTo }) {
   function schedules(d) {
     const list = d.schedules || [];
     const ph = d.phases || {};
-    const timing = ph.timer || 0;
+    const late = ph.lewat || 0;
     const waiting = ph.menunggu || 0;
     const needSoap = ph.soap || 0;
     return h('section', { class: 'hsched', 'aria-labelledby': 'hs-title' },
       h('div', { class: 'hsched__head' },
         h('h2', { id: 'hs-title' }, 'Jadwal Saya Hari Ini'),
         h('button', { class: 'hlink', type: 'button', onclick: toSchedule }, 'Lihat semua & selesai →')),
-      needSoap ? h('p', { class: 'hnotice', role: 'status' }, `${fmtNum(needSoap)} tugas menunggu SOAP. SOAP wajib diisi dulu; hitung mundur baru berjalan setelah SOAP disimpan.`) : null,
-      timing ? h('p', { class: 'hnotice hnotice--info', role: 'status' }, `${fmtNum(timing)} tugas sedang dalam hitung mundur.`) : null,
+      needSoap ? h('p', { class: 'hnotice', role: 'status' }, `${fmtNum(needSoap)} tugas menunggu SOAP. Isi SOAP setelah pelayanan selesai, paling lambat pukul 23.00 WIB, agar komisi berlaku.`) : null,
+      late ? h('p', { class: 'hnotice', role: 'status' }, `${fmtNum(late)} tugas melewati batas SOAP. Hubungi admin atau supervisor.`) : null,
       waiting ? h('p', { class: 'hnotice', role: 'status' }, `${fmtNum(waiting)} tugas menunggu approve admin atau supervisor.`) : null,
       list.length
         ? h('ul', { class: 'hlist' }, list.map(item))
@@ -138,7 +138,7 @@ export function homeView(main, user, ctx, { goTo }) {
       if (d.today) dateLine.textContent = fmtLongDay(d.today);
       body.replaceChildren(stats(d), schedules(d));
       const ph = d.phases || {};
-      if ((ph.timer || 0) + (ph.menunggu || 0) > 0) poll();
+      if ((ph.menunggu || 0) > 0) poll();
     } catch (e) {
       if (e.aborted || !ctx.isCurrent()) return;
       if (silent) poll(); else showError(e);

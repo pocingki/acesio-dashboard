@@ -26,8 +26,8 @@ add('GET', '/api/my/home', 'user', ({ user }) => {
     if (r.status in by_status) by_status[r.status] = r.n;
   }
 
-  // Dari yang berjalan hari ini: berapa yang menunggu SOAP, sedang hitung mundur, atau menunggu approve (jadwal lama tanpa fase tidak dihitung).
-  const phases = { soap: 0, timer: 0, menunggu: 0 };
+  // Dari yang berjalan hari ini: berapa yang menunggu SOAP, lewat batas SOAP, atau menunggu approve (jadwal lama tanpa fase tidak dihitung).
+  const phases = { soap: 0, lewat: 0, menunggu: 0 };
   for (const r of db.prepare(`${SCHEDULE_SELECT} WHERE s.user_id = ? AND s.day = ? AND s.status = 'berjalan'`).all(user.id, today)) { const ph = phaseOf(r); if (ph) phases[ph]++; }
 
   // Berikutnya: baru/berjalan hari ini dengan jam mulai terdekat yang belum lewat; bila semua sudah lewat, yang paling awal.

@@ -170,14 +170,11 @@ test('workflow harian: jadwal, SOAP gagal di tengah, dua approve terpisah, komis
   const saved = await post('/api/records', { schedule_id: sch.id, soap: { ...VALID_SOAP, s: SOAP } }, therapist);
   assert.equal(saved.status, 200, saved.text);
   assert.equal(recordCount().n, 0, 'SOAP belum mencatat komisi sebelum approve tugas');
-  const early = await post(`/api/staff/schedules/${sch.id}/approve`, {}, sv);
-  assert.equal(early.status, 409, 'approve tugas ditolak selama hitung mundur');
 
   const review = await post('/api/staff/reviews', { user_id: therapistId, day: DAY, late: false }, adm);
   assert.equal(review.status, 200, review.text);
   assert.equal(recordCount().n, 0, 'approve ketepatan waktu tidak mencatat komisi');
 
-  setNow('09:05');
   const approved = await post(`/api/staff/schedules/${sch.id}/approve`, {}, sv);
   assert.equal(approved.status, 200, approved.text);
   assert.equal(approved.json.schedule.status, 'selesai');

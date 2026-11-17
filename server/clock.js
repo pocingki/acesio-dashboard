@@ -19,51 +19,40 @@ export function now() {
 
 export const ymd = (date = now()) => fmt.format(date); // YYYY-MM-DD di zona waktu bisnis
 
-// ---------- jam akses akun user ----------
-
-const DEFAULT_ACCESS = { start: '06:00', end: '23:00' };
 const toMin = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
-let warned = false;
 
-// Env dibaca saat dipanggil. Mengembalikan { start, end, startMin, endMin } atau null (tidak dibatasi).
-export function accessWindow() {
-  const raw = String(process.env.ACCESS_HOURS ?? '').trim();
-  if (!raw) return build(DEFAULT_ACCESS);
-  if (raw.toLowerCase() === 'off') return null;
-  const m = /^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/.exec(raw);
-  if (m) {
-    const [h1, m1, h2, m2] = m.slice(1).map(Number);
-    const valid = h1 < 24 && h2 < 24 && m1 < 60 && m2 < 60 && h1 * 60 + m1 < h2 * 60 + m2;
-    if (valid) return build({ start: `${m[1]}:${m[2]}`, end: `${m[3]}:${m[4]}` });
-  }
-  if (!warned) {
-    warned = true;
-    console.warn(`ACCESS_HOURS="${raw}" tidak valid (format HH:MM-HH:MM, mulai harus lebih kecil dari akhir). Memakai default ${DEFAULT_ACCESS.start}-${DEFAULT_ACCESS.end}.`);
-  }
-  return build(DEFAULT_ACCESS);
+// ---------- batas waktu SOAP dan approve ----------
+// SOAP diisi user setelah pelayanan selesai, paling lambat jam SOAP_DEADLINE (default 23:00) pada tanggal jadwal.
+// Approve admin/supervisor: pada tanggal jadwal, atau besoknya sampai jam APPROVE_UNTIL (default 10:00). Zona APP_TZ (WIB).
+export const DEFAULT_SOAP_DEADLINE = '23:00';
+export const DEFAULT_APPROVE_UNTIL = '10:00';
+const HM_RX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const hmOf = (envName, fallback) => {
+  const raw = String(process.env[envName] ?? '').trim();
+  return HM_RX.test(raw) ? raw : fallback;
+};
+export const soapDeadlineHm = () => hmOf('SOAP_DEADLINE', DEFAULT_SOAP_DEADLINE);
+export const approveUntilHm = () => hmOf('APPROVE_UNTIL', DEFAULT_APPROVE_UNTIL);
+const minutesOfDay = (date) => { const [hh, mm] = fmtClock.format(date).split(':').map(Number); return hh * 60 + mm; };
+const addDaysYmd = (day, n) => {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+};
+
+// true bila batas isi SOAP untuk jadwal bertanggal `day` sudah lewat.
+export function soapDeadlinePassed(day, at = now()) {
+  const today = ymd(at);
+  if (today > day) return true;
+  if (today < day) return false;
+  return minutesOfDay(at) >= toMin(soapDeadlineHm());
 }
 
-function build({ start, end }) {
-  return { start, end, startMin: toMin(start), endMin: toMin(end) };
+// true bila pekerjaan bertanggal `day` masih boleh di-approve: hari yang sama, atau besoknya sebelum APPROVE_UNTIL.
+export function approvalOpen(day, at = now()) {
+  const today = ymd(at);
+  if (day === today) return true;
+  return addDaysYmd(day, 1) === today && minutesOfDay(at) < toMin(approveUntilHm());
 }
 
-// true bila tidak dibatasi atau jam:menit (zona APP_TZ) berada di [mulai, akhir).
-export function isWithinAccess(date = now()) {
-  const w = accessWindow();
-  if (!w) return true;
-  const [hh, mm] = fmtClock.format(date).split(':').map(Number);
-  const minutes = hh * 60 + mm;
-  return minutes >= w.startMin && minutes < w.endMin;
-}
-
-export function accessMessage() {
-  const w = accessWindow() ?? DEFAULT_ACCESS;
-  const dot = (t) => t.replace(':', '.');
-  return `Akun user hanya bisa dipakai pukul ${dot(w.start)}–${dot(w.end)}. Silakan masuk kembali pada jam tersebut.`;
-}
-
-// Bentuk untuk respons API: { start, end } atau null bila tidak dibatasi.
-export function accessInfo() {
-  const w = accessWindow();
-  return w ? { start: w.start, end: w.end } : null;
-}
+export const dotTime = (hm) => String(hm).replace(':', '.');
+export const approvalClosedMessage = () => `Batas approve sudah lewat. Pekerjaan bisa di-approve pada hari yang sama atau besoknya sampai pukul ${dotTime(approveUntilHm())} WIB.`;

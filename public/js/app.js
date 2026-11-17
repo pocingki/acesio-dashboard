@@ -34,11 +34,11 @@ async function logout() {
   renderLogin(root, mount);
 }
 
-// `message` hanya diisi untuk 403 OUTSIDE_HOURS (pesan dari server); tanpa itu = sesi berakhir biasa.
-hooks.onUnauthorized = (message) => {
+// Sesi berakhir (401): kembali ke layar login.
+hooks.onUnauthorized = () => {
   if (!sessionActive) return;
   endSession();
-  renderLogin(root, mount, typeof message === 'string' && message ? message : 'Sesi berakhir. Silakan masuk lagi.');
+  renderLogin(root, mount, 'Sesi berakhir. Silakan masuk lagi.');
 };
 
 async function boot() {
@@ -47,7 +47,6 @@ async function boot() {
     data = await api('/api/auth/me');
   } catch (e) {
     // 401 = belum login (normal, tanpa pesan); error lain (server mati, offline) ditampilkan.
-    // 401 = belum login (normal, tanpa pesan); 403 OUTSIDE_HOURS menampilkan pesan jam akses dari server.
     renderLogin(root, mount, e.status === 401 ? '' : e.message);
     return;
   }

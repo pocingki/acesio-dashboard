@@ -1,6 +1,6 @@
 import { db, tx, activeServiceCount } from './db.js';
 import { HttpError, isYmd, likePattern } from './util.js';
-import { ymd, now } from './clock.js';
+import { ymd, now, soapDeadlinePassed, soapDeadlineHm, approveUntilHm, approvalOpen, approvalClosedMessage, dotTime } from './clock.js';
 import { logAudit } from './audit.js';
 import { createNotification, NOTIFICATION_TYPES as NT } from './notifications.js';
 import { resolveCustomer, ints } from './routes/helpers.js';
@@ -73,39 +73,26 @@ function readWorker(v) {
 
 const hasCustomerRef = (b) => !blank(b.customer_id) || !blank(b.customer_rm);
 
-// ---------- timer layanan dan approve ----------
-// Alur: Baru --Mulai--> Sedang dijalani, user WAJIB mengisi SOAP dulu --SOAP disimpan--> hitung mundur berjalan
-//       --waktu habis--> Menunggu approve --admin/supervisor approve--> Selesai (layanan dan komisi tercatat).
-// "phase" tidak disimpan: dihitung dari status, flow, soap, due_at sehingga tidak perlu tugas latar belakang
-// dan tetap benar setelah server dimulai ulang. Jadwal berjalan dengan flow = 0 (dimulai sebelum alur ini ada,
-// atau SESSION_TIMER=off) memakai alur lama: SOAP disimpan = langsung Selesai (phase null).
-export const DEFAULT_SESSION_MINUTES = 60;
-
+// ---------- alur SOAP dan approve ----------
+// Alur: Baru --Mulai--> Sedang dijalani (user melayani customer, TANPA hitung mundur)
+//       --pelayanan selesai, user mengisi SOAP (paling lambat jam SOAP_DEADLINE, default 23.00 WIB, pada tanggal jadwal)-->
+//       Menunggu approve --admin/supervisor approve (hari itu, atau besoknya sampai APPROVE_UNTIL, default 10.00 WIB)-->
+//       Selesai (layanan dan komisi tercatat).
+// Bila SOAP tidak diisi sampai batas, jadwal berfase 'lewat': user tidak bisa mengisi lagi dan komisi tidak berlaku,
+// kecuali admin/supervisor mengisi atau mengubah SOAP-nya (staffSetSoap).
+// "phase" tidak disimpan: dihitung dari status, flow, due_at (= waktu SOAP disimpan) dan jam sekarang, sehingga tidak perlu
+// tugas latar belakang dan tetap benar setelah server dimulai ulang. Jadwal berjalan dengan flow = 0 (dimulai sebelum alur ini
+// ada, atau SESSION_TIMER=off) memakai alur lama: SOAP disimpan = langsung Selesai (phase null).
 export function timerEnabled() {
   return String(process.env.SESSION_TIMER ?? '').trim().toLowerCase() !== 'off';
 }
 
-const toMin = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
-
-// Durasi layanan (menit): jam selesai - jam mulai bila jam selesai diisi; selain itu SESSION_MINUTES (default 60).
-export function sessionMinutes(row) {
-  if (row.end_time && row.start_time && row.end_time > row.start_time) return toMin(row.end_time) - toMin(row.start_time);
-  const n = Number(String(process.env.SESSION_MINUTES ?? '').trim());
-  return Number.isInteger(n) && n >= 1 && n <= 24 * 60 ? n : DEFAULT_SESSION_MINUTES;
-}
-
 // null bila bukan jadwal berjalan beralur baru; selain itu:
-// 'soap' (belum ada SOAP, hitung mundur belum jalan) | 'timer' (hitung mundur) | 'menunggu' (waktu habis, menunggu approve).
+// 'soap' (belum ada SOAP, masih dalam batas waktu) | 'lewat' (belum ada SOAP, batas waktu lewat) | 'menunggu' (SOAP ada, menunggu approve).
 export function phaseOf(row, at = now()) {
   if (row.status !== 'berjalan' || !row.flow) return null;
-  if (!row.due_at) return 'soap';
-  return at.toISOString() < row.due_at ? 'timer' : 'menunggu';
-}
-
-// Sisa detik hitung mundur (0 bila habis atau belum jalan). Dihitung server supaya jam perangkat user tidak berpengaruh.
-export function remainingSeconds(row, at = now()) {
-  if (row.status !== 'berjalan' || !row.flow || !row.due_at) return 0;
-  return Math.max(0, Math.ceil((new Date(row.due_at).getTime() - at.getTime()) / 1000));
+  if (row.due_at) return 'menunggu';
+  return soapDeadlinePassed(row.day, at) ? 'lewat' : 'soap';
 }
 
 // ---------- bentuk API ----------
@@ -148,8 +135,10 @@ export function toApi(row, { detail = false, staff = false, services } = {}) {
     completed_at: row.completed_at,
     created_at: row.created_at,
     phase: phaseOf(row), // null = jadwal lama / timer mati: SOAP langsung menyelesaikan jadwal
-    due_at: row.due_at || '',
-    remaining_sec: remainingSeconds(row),
+    soap_at: row.due_at || '', // waktu SOAP disimpan
+    soap_deadline: soapDeadlineHm(), // batas isi SOAP pada tanggal jadwal (JJ:MM)
+    approve_until: approveUntilHm(), // batas approve besoknya (JJ:MM)
+    can_approve: row.status === 'berjalan' && !!row.flow && !!row.due_at && approvalOpen(row.day),
     approved_at: row.approved_at || '',
     approved_by_name: row.approved_by_name || '',
     services: svc,
@@ -186,8 +175,8 @@ export function listSchedules({ from, to, userId, status, q, page = 1 } = {}) {
   if (to) { where.push('s.day <= ?'); args.push(to); }
   if (userId) { where.push('s.user_id = ?'); args.push(Number(userId)); }
   if (status === 'menunggu') {
-    // Pseudo-status: berjalan, SOAP sudah disimpan, waktu habis, belum di-approve.
-    where.push("s.status = 'berjalan' AND s.flow = 1 AND s.due_at <> '' AND s.due_at <= ?"); args.push(now().toISOString());
+    // Pseudo-status: berjalan, SOAP sudah disimpan, belum di-approve.
+    where.push("s.status = 'berjalan' AND s.flow = 1 AND s.due_at <> ''");
   } else if (status) { where.push('s.status = ?'); args.push(status); }
   if (q) {
     where.push("(c.name LIKE ? ESCAPE '\\' OR c.rm_no LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\')");
@@ -199,8 +188,7 @@ export function listSchedules({ from, to, userId, status, q, page = 1 } = {}) {
   const total = db.prepare(`SELECT COUNT(*) AS n ${join} ${w}`).get(...args).n;
   const rows = db.prepare(`${SCHEDULE_SELECT} ${w} ORDER BY s.day, s.start_time, s.id LIMIT ? OFFSET ?`)
     .all(...args, PAGE_SIZE, (page - 1) * PAGE_SIZE);
-  const pending = db.prepare(`SELECT COUNT(*) AS n FROM schedules WHERE status = 'berjalan' AND flow = 1 AND due_at <> '' AND due_at <= ?`)
-    .get(now().toISOString()).n;
+  const pending = db.prepare("SELECT COUNT(*) AS n FROM schedules WHERE status = 'berjalan' AND flow = 1 AND due_at <> ''").get().n;
   return { schedules: toApiList(rows, { staff: true }), total, page, pageSize: PAGE_SIZE, pending_approval: pending };
 }
 
@@ -307,20 +295,88 @@ export function cancelSchedule(id, actor, ip = '') {
   });
 }
 
-// Admin dan supervisor menyatakan pekerjaan terapis selesai setelah SOAP terisi dan hitung mundur habis.
-// Approve = jadwal Selesai: layanan dan komisi dicatat saat ini (satu transaksi). Hanya sekali.
+// Admin dan supervisor menyatakan pekerjaan terapis selesai setelah SOAP terisi.
+// Approve = jadwal Selesai: layanan dan komisi dicatat saat ini (satu transaksi), pada tanggal jadwal. Hanya sekali.
+// Bisa pada tanggal jadwal, atau besoknya sampai APPROVE_UNTIL (10.00 WIB); setelah itu komisi tidak berlaku.
 export function approveSchedule(id, actor, ip = '') {
   return tx(() => {
     const cur = getScheduleRow(id);
     if (!cur) throw new HttpError(404, 'Jadwal tidak ditemukan');
     if (cur.status !== 'berjalan' || !cur.flow) throw new HttpError(409, 'Hanya jadwal yang sedang dijalani dan sudah mengisi SOAP yang bisa di-approve', 'SCHEDULE_STATE');
-    if (cur.day !== ymd()) throw new HttpError(409, 'Approve hanya bisa pada tanggal jadwal', 'SCHEDULE_NOT_TODAY');
     const phase = phaseOf(cur);
     if (phase === 'soap') throw new HttpError(409, 'Terapis belum mengisi SOAP, jadi belum bisa di-approve.', 'SOAP_PENDING');
-    if (phase === 'timer') throw new HttpError(409, 'Waktu layanan belum habis. Approve bisa setelah hitung mundur selesai.', 'TIMER_RUNNING');
+    if (phase === 'lewat') throw new HttpError(409, 'Terapis tidak mengisi SOAP sampai batas waktu. Isi atau ubah SOAP lebih dulu lewat Ubah SOAP, lalu approve.', 'SOAP_PENDING');
+    if (!approvalOpen(cur.day)) throw new HttpError(409, approvalClosedMessage(), 'APPROVE_CLOSED');
     const { count } = finishSchedule(cur, { approvedBy: actor.id });
     audit(actor, ip, 'schedule.approve', cur.id, { user_id: cur.user_id, customer_id: cur.customer_id, day: cur.day, services: count });
     createNotification({ userId: cur.user_id, type: NT.tugas_selesai, scheduleId: cur.id, body: notifBody(cur.customer_name, cur.day, cur.start_time) });
+    return getSchedule(cur.id);
+  });
+}
+
+// Admin/supervisor mengisi atau mengubah SOAP: untuk user yang terlambat mengisi (fase soap/lewat) atau memperbaiki SOAP
+// yang sudah ada (menunggu approve atau sudah Selesai). Mengisi SOAP yang kosong membuat jadwal siap di-approve.
+// Isi SOAP tidak masuk audit.
+export function staffSetSoap(id, soapInput, actor, ip = '') {
+  return tx(() => {
+    const cur = getScheduleRow(id);
+    if (!cur) throw new HttpError(404, 'Jadwal tidak ditemukan');
+    const editable = cur.status === 'selesai' || (cur.status === 'berjalan' && cur.flow);
+    if (!editable) throw new HttpError(409, 'SOAP hanya bisa diisi atau diubah pada jadwal yang sedang dijalani atau sudah selesai', 'SCHEDULE_STATE');
+    const clean = validateSoap(soapInput);
+    const stamp = now().toISOString();
+    const hadSoap = !!(cur.soap_s || cur.soap_o || cur.soap_a || cur.soap_p);
+    const late = cur.status === 'berjalan' && !cur.due_at;
+    db.prepare(`UPDATE schedules SET soap_s = ?, soap_o = ?, soap_a = ?, soap_p = ?,
+      due_at = CASE WHEN status = 'berjalan' AND due_at = '' THEN ? ELSE due_at END, updated_at = ? WHERE id = ?`)
+      .run(clean.s, clean.o, clean.a, clean.p, stamp, stamp, cur.id);
+    audit(actor, ip, 'schedule.soap_staff', cur.id, {
+      user_id: cur.user_id, customer_id: cur.customer_id, day: cur.day, from: cur.status,
+      first_fill: !hadSoap, late_fill: late && soapDeadlinePassed(cur.day),
+    });
+    return getSchedule(cur.id);
+  });
+}
+
+// Admin/supervisor mengubah daftar layanan pada jadwal yang sedang dijalani atau sudah Selesai (customer sering meminta
+// layanan tambahan saat dilayani). Jadwal yang sedang dijalani: hanya daftar layanan (komisi dicatat saat approve).
+// Jadwal Selesai: layanan yang bertambah dicatat (komisi sesuai pengaturan user), yang dikurangi dihapus, pada batch yang sama
+// dan tanggal jadwal. Notifikasi kunjungan WhatsApp tidak dikirim ulang untuk perubahan ini.
+export function staffSetServices(id, body, actor, ip = '') {
+  const ids = readServiceIds(body?.service_ids);
+  return tx(() => {
+    const cur = getScheduleRow(id);
+    if (!cur) throw new HttpError(404, 'Jadwal tidak ditemukan');
+    if (cur.status !== 'berjalan' && cur.status !== 'selesai') {
+      throw new HttpError(409, 'Layanan hanya bisa diubah di sini pada jadwal yang sedang dijalani atau sudah selesai. Jadwal Baru diubah lewat Ubah jadwal.', 'SCHEDULE_STATE');
+    }
+    const old = scheduleServiceIds(cur.id);
+    const sameSet = old.length === ids.length && [...old].sort((a, b) => a - b).every((v, i) => v === [...ids].sort((a, b) => a - b)[i]);
+    if (sameSet) return getSchedule(cur.id);
+    let added = 0;
+    let removed = 0;
+    if (cur.status === 'selesai') {
+      if (!cur.batch) throw new HttpError(409, 'Jadwal ini tidak punya catatan layanan untuk diubah. Hubungi supervisor.', 'SCHEDULE_STATE');
+      const recs = db.prepare('SELECT id, service_id FROM records WHERE batch = ? AND user_id = ?').all(cur.batch, cur.user_id);
+      const have = new Set(recs.map((r) => r.service_id));
+      const want = new Set(ids);
+      const toAdd = ids.filter((x) => !have.has(x));
+      const toRemove = recs.filter((r) => !want.has(r.service_id));
+      if (toAdd.length) {
+        createRecords({
+          userId: cur.user_id,
+          customer: { id: cur.customer_id, rm_no: cur.customer_rm, name: cur.customer_name, phone: cur.customer_phone },
+          serviceIds: toAdd, source: 'web', note: '', batch: cur.batch, fromSchedule: true, day: cur.day, queue: false,
+        });
+      }
+      for (const r of toRemove) db.prepare('DELETE FROM records WHERE id = ?').run(r.id);
+      added = toAdd.length; removed = toRemove.length;
+    }
+    setServices(cur.id, ids);
+    db.prepare('UPDATE schedules SET updated_at = ? WHERE id = ?').run(now().toISOString(), cur.id);
+    audit(actor, ip, 'schedule.services_staff', cur.id, {
+      user_id: cur.user_id, customer_id: cur.customer_id, day: cur.day, status: cur.status, services: ids.length, added, removed,
+    });
     return getSchedule(cur.id);
   });
 }
@@ -347,7 +403,7 @@ function claimScheduleRecords(row, source) {
   });
   const claimed = withIdempotency(row.user_id, scheduleClaimKey(row.id), () => {
     const { count, batch, ids } = createRecords({
-      userId: row.user_id, customer, serviceIds, source, note: '', fromSchedule: true,
+      userId: row.user_id, customer, serviceIds, source, note: '', fromSchedule: true, day: row.day,
     });
     return { status: 200, body: { count, batch, record_ids: ids } };
   }, fingerprint);
@@ -424,7 +480,11 @@ export function getMine(userId, id) {
 function loadRunnable(user, id) {
   const row = getScheduleRow(id);
   if (!row || row.user_id !== user.id) throw new HttpError(404, 'Jadwal tidak ditemukan');
-  if (row.day !== ymd()) throw new HttpError(409, 'Jadwal hanya bisa dijalankan pada tanggalnya', 'SCHEDULE_NOT_TODAY');
+  if (row.day !== ymd()) {
+    throw new HttpError(409, row.status === 'berjalan' && !row.due_at
+      ? `Batas mengisi SOAP (pukul ${dotTime(soapDeadlineHm())} WIB pada tanggal jadwal) sudah lewat. Hubungi admin atau supervisor.`
+      : 'Jadwal hanya bisa dijalankan pada tanggalnya', row.status === 'berjalan' && !row.due_at ? 'SOAP_DEADLINE' : 'SCHEDULE_NOT_TODAY');
+  }
   if (row.status !== 'baru' && row.status !== 'berjalan') {
     throw new HttpError(409, row.status === 'selesai' ? 'Jadwal ini sudah selesai' : 'Jadwal ini sudah dibatalkan', 'SCHEDULE_STATE');
   }
@@ -436,9 +496,10 @@ export function startSchedule({ user, id, ip = '' }) {
   return tx(() => {
     const row = loadRunnable(user, id);
     if (row.status === 'baru') {
+      if (soapDeadlinePassed(row.day)) throw new HttpError(409, `Jadwal tidak bisa dimulai lagi: sudah lewat pukul ${dotTime(soapDeadlineHm())} WIB.`, 'SOAP_DEADLINE');
       const at = now();
       const stamp = at.toISOString();
-      // Alur baru: hitung mundur BELUM jalan; due_at diisi saat SOAP disimpan.
+      // Alur baru: tanpa hitung mundur; due_at diisi saat SOAP disimpan (menandai SOAP sudah ada).
       db.prepare("UPDATE schedules SET status = 'berjalan', started_at = ?, flow = ?, due_at = '', updated_at = ? WHERE id = ?").run(stamp, timerEnabled() ? 1 : 0, stamp, row.id);
       audit(user, ip, 'schedule.start', row.id, { customer_id: row.customer_id, day: row.day });
       createNotification({ userId: row.user_id, type: NT.tugas_berjalan, scheduleId: row.id, body: notifBody(row.customer_name, row.day, row.start_time) });
@@ -478,8 +539,11 @@ export function completeSchedule({ user, scheduleId, soap, ip = '' }) {
     // Tanpa Mulai tidak ada alur SOAP -> hitung mundur -> approve, jadi Baru harus ditolak (kecuali timer dimatikan).
     if (row.status === 'baru' && timerEnabled()) throw new HttpError(409, 'Tekan Mulai dulu sebelum mengisi SOAP.', 'SCHEDULE_STATE');
     const phase = phaseOf(row);
-    if (phase === 'timer' || phase === 'menunggu') {
-      throw new HttpError(409, 'SOAP sudah disimpan. Tugas menunggu hitung mundur selesai lalu approve admin atau supervisor.', 'SOAP_ALREADY_SAVED');
+    if (phase === 'menunggu') {
+      throw new HttpError(409, 'SOAP sudah disimpan. Tugas menunggu approve admin atau supervisor.', 'SOAP_ALREADY_SAVED');
+    }
+    if (phase === 'lewat') {
+      throw new HttpError(409, `Batas mengisi SOAP (pukul ${dotTime(soapDeadlineHm())} WIB) sudah lewat, jadi komisi tugas ini tidak berlaku. Hubungi admin atau supervisor bila perlu diperbaiki.`, 'SOAP_DEADLINE');
     }
     const clean = validateSoap(soap);
     const customer = { id: row.customer_id, rm_no: row.customer_rm, name: row.customer_name, phone: row.customer_phone };
@@ -487,11 +551,10 @@ export function completeSchedule({ user, scheduleId, soap, ip = '' }) {
     if (phase === 'soap') {
       const at = now();
       const stamp = at.toISOString();
-      const minutes = sessionMinutes(row);
-      const due = new Date(at.getTime() + minutes * 60000).toISOString();
+      // due_at = waktu SOAP disimpan; sejak itu jadwal menunggu approve (tidak ada hitung mundur).
       db.prepare('UPDATE schedules SET soap_s = ?, soap_o = ?, soap_a = ?, soap_p = ?, due_at = ?, updated_at = ? WHERE id = ?')
-        .run(clean.s, clean.o, clean.a, clean.p, due, stamp, row.id);
-      audit(user, ip, 'schedule.soap', row.id, { customer_id: row.customer_id, day: row.day, minutes, soap_parts: SOAP_PARTS.map(([k]) => k) });
+        .run(clean.s, clean.o, clean.a, clean.p, stamp, stamp, row.id);
+      audit(user, ip, 'schedule.soap', row.id, { customer_id: row.customer_id, day: row.day, soap_parts: SOAP_PARTS.map(([k]) => k) });
       return { count: 0, customer, schedule: toApi(getScheduleRow(row.id), { detail: true }) };
     }
 

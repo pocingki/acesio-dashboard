@@ -4,6 +4,7 @@ import { add } from './index.js';
 import { parseId, readPeriod, cleanQ } from './history.js';
 import {
   SCHEDULE_STATUSES, listSchedules, listWorkers, getSchedule, createSchedule, updateSchedule, cancelSchedule, approveSchedule,
+  staffSetSoap, staffSetServices,
 } from '../schedules.js';
 
 // Jadwal untuk staff (admin dan supervisor). Logika ada di server/schedules.js.
@@ -49,7 +50,17 @@ add('POST', '/api/staff/schedules/:id/cancel', 'staff', ({ req, user, params }) 
   { schedule: cancelSchedule(parseId(params.id, 'ID jadwal'), user, clientIp(req)) }
 ));
 
-// Admin dan supervisor menyatakan pekerjaan terapis selesai (setelah hitung mundur habis).
+// Admin dan supervisor menyatakan pekerjaan terapis selesai (setelah SOAP terisi; hari jadwal atau besoknya sampai 10.00 WIB).
 add('POST', '/api/staff/schedules/:id/approve', 'staff', ({ req, user, params }) => (
   { schedule: approveSchedule(parseId(params.id, 'ID jadwal'), user, clientIp(req)) }
+));
+
+// Mengisi/mengubah SOAP (user terlambat mengisi, atau perbaikan SOAP yang sudah ada) dan mengubah layanan
+// pada jadwal yang sedang dijalani atau sudah selesai (layanan tambahan dari customer).
+add('PATCH', '/api/staff/schedules/:id/soap', 'staff', ({ req, user, params, body }) => (
+  { schedule: staffSetSoap(parseId(params.id, 'ID jadwal'), body?.soap ?? body, user, clientIp(req)) }
+));
+
+add('PATCH', '/api/staff/schedules/:id/services', 'staff', ({ req, user, params, body }) => (
+  { schedule: staffSetServices(parseId(params.id, 'ID jadwal'), body || {}, user, clientIp(req)) }
 ));

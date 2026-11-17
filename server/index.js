@@ -19,7 +19,6 @@ if (configProblems.length) {
 // Modul dimuat dinamis supaya .env sudah terbaca sebelum db.js dan auth.js dievaluasi.
 const { db, dataDir, uploadDir } = await import('./db.js');
 const { sessionUser, hashPassword, isSecure, destroyUserSessions, cookieHeader } = await import('./auth.js');
-const { isWithinAccess, accessMessage } = await import('./clock.js');
 const { routes, loadRoutes, LIMITS } = await import('./routes/index.js');
 await loadRoutes();
 const { botKeyValid } = await import('./routes/bot.js');
@@ -239,12 +238,6 @@ async function handleApi(req, res, url) {
   } else if (route.access !== 'public') {
     user = sessionUser(req);
     if (!user) throw new HttpError(401, 'Silakan login terlebih dahulu');
-    if (user.role === 'user' && !isWithinAccess()) {
-      // Di luar jam akses: sesi user dicabut dan cookie dihapus (seperti logout). Admin/supervisor/bot tidak terkena.
-      destroyUserSessions(user.id);
-      res.setHeader('Set-Cookie', cookieHeader('', isSecure(req)));
-      throw new HttpError(403, accessMessage(), 'OUTSIDE_HOURS');
-    }
     if (route.access === 'staff' && user.role === 'user') throw new HttpError(403, 'Khusus admin dan supervisor');
     if (route.access === 'sv' && user.role !== 'supervisor') throw new HttpError(403, 'Khusus supervisor');
   }
