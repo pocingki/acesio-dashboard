@@ -27,7 +27,7 @@ Data contoh: `npm run seed:demo` membuat user demo (sari, budi, dewi) dengan **p
 | `HOST` | `127.0.0.1` | Hanya komputer ini. Akses dari luar lewat reverse proxy HTTPS. `NODE_ENV=production` menolak alamat lain |
 | `DATA_DIR` | `./data` | Berisi `acesio.db` dan `uploads/` |
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | `admin`, acak | Akun supervisor pertama |
-| `BOT_API_KEY` | kosong | Kosong = endpoint `/api/bot/*` nonaktif (503) |
+| `BOT_API_KEY` | kosong | Cadangan. Cara biasa: buat kunci dari menu Integrasi di dashboard (tidak perlu .env). Kunci dashboard didahulukan; kalau tidak ada dan ini kosong, `/api/bot/*` nonaktif (503) |
 | `APP_TZ` | `Asia/Jakarta` | Zona waktu bisnis: menentukan "hari ini" untuk jadwal, hapus, approve, laporan |
 | `SESSION_HOURS` | `12` | Masa berlaku sesi login |
 | `APP_FAKE_NOW_FILE` | kosong | **Khusus tes.** Hanya dibaca bila `NODE_ENV=test`; berisi waktu palsu (ISO) untuk menguji batas waktu (SOAP, approve). **Jangan dipakai di produksi** |
@@ -175,7 +175,7 @@ Kode error baru: `SCHEDULE_REQUIRED`, `SOAP_REQUIRED`, `SCHEDULE_NOT_TODAY`, `SC
 
 ## Integrasi WA bot
 
-Isi `BOT_API_KEY`, lalu kirim header `X-API-Key` di setiap request. Semua respons JSON.
+Buat kunci di menu **Integrasi → Kunci untuk server WhatsApp** (tampil sekali, yang tersimpan hanya hash; bisa dibuat ulang atau dicabut), atau isi `BOT_API_KEY` di `.env`. Kirim header `X-API-Key` di setiap request. Semua respons JSON.
 
 ```bash
 # Cari customer: No RM (utama), nomor WA, atau nama

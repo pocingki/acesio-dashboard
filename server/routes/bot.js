@@ -9,6 +9,7 @@ import { requestFingerprint, withIdempotency } from '../idempotency.js';
 import { recordLinkedSchedule } from '../schedules.js';
 import { HttpError, normalizePhone, likePattern } from '../util.js';
 import { receiveIncoming } from '../incoming.js';
+import { botKeyHash } from '../integration.js';
 import { ints } from './helpers.js';
 import { add } from './index.js';
 
@@ -29,7 +30,8 @@ function rememberBlock(ip, retryAfterSec) {
 
 // true = key benar, false = key salah (pemanggil melempar 401). Melempar 503 / 429 sendiri.
 export function botKeyValid(req) {
-  const expected = process.env.BOT_API_KEY;
+  const dashHash = botKeyHash(); // kunci buatan dashboard didahulukan; BOT_API_KEY .env jadi cadangan
+  const expected = dashHash || process.env.BOT_API_KEY;
   if (!expected) {
     const ip0 = clientIp(req);
     if (process.env.NODE_ENV !== 'production' && (ip0 === '127.0.0.1' || ip0 === '::1' || ip0 === 'localhost')) return true;
@@ -44,7 +46,8 @@ export function botKeyValid(req) {
   }
   // SHA-256 di kedua sisi: panjang sama, jadi panjang key asli tidak bocor lewat timing.
   const given = digest(String(req.headers['x-api-key'] || ''));
-  if (crypto.timingSafeEqual(given, digest(expected))) return true;
+  const want = dashHash ? Buffer.from(dashHash, 'hex') : digest(expected);
+  if (crypto.timingSafeEqual(given, want)) return true;
   const hit = failedKeys.hit(ip);
   if (!hit.allowed) {
     rememberBlock(ip, hit.retryAfterSec);

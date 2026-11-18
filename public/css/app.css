@@ -676,3 +676,10 @@ td small { display: block; color: var(--muted); }
   body .visit-card__facts dt, body .visit__count, body .approve__done, body .svc-name small,
   body .table-wrap:not(.table-wrap--sch) td::before, body .sch-table td::before { font-size: 13px; }
 }
+
+.intg-newkey { background: #fff8e1; border: 1px solid #f3d27a; border-radius: 12px; padding: 10px 12px; margin: 10px 0; }
+.intg-newkey p { margin: 0 0 8px; font-size: 13px; }
+.intg-newkey .copyrow { display: flex; gap: 8px; }
+.intg-newkey .copyrow .input { flex: 1; min-width: 0; font-family: ui-monospace, monospace; }
+.intg-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+section.intg-activity { margin-top: 12px; }

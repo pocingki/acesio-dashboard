@@ -44,3 +44,16 @@ add('POST', '/api/sv/integration/disconnect', 'sv', ({ req, user }) => {
   audit(req, user, 'integration.disconnect');
   return I.state();
 });
+
+// Kunci untuk server WhatsApp: dibuat/diganti/dicabut dari dashboard. Kunci utuh hanya ada di respons pembuatan.
+add('POST', '/api/sv/integration/bot-key', 'sv', ({ req, user }) => {
+  const key = I.createBotKey();
+  audit(req, user, 'integration.bot_key.create');
+  return { ...I.state(), new_bot_key: key };
+});
+
+add('POST', '/api/sv/integration/bot-key/revoke', 'sv', ({ req, user }) => {
+  I.revokeBotKey();
+  audit(req, user, 'integration.bot_key.revoke');
+  return I.state();
+});

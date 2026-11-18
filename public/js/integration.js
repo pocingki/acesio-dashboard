@@ -241,8 +241,38 @@ export function openIntegrationDrawer(onState) {
       h('ul', { class: 'intg-list' }, items),
       h('details', { class: 'intg-tech' }, h('summary', null, 'Info teknis'),
         h('p', { class: 'hint' }, s.amnan_can_read
-          ? 'Arah sebaliknya (server WhatsApp membaca data customer Acesio) sudah bisa dipakai: kunci server (BOT_API_KEY) aktif.'
-          : 'Arah sebaliknya (server WhatsApp membaca data customer Acesio) belum aktif: isi BOT_API_KEY di berkas .env server.')));
+          ? 'Arah sebaliknya (server WhatsApp membaca data customer Acesio) sudah bisa dipakai: kunci server aktif.'
+          : 'Arah sebaliknya (server WhatsApp membaca data customer Acesio) belum aktif: buat kunci di bagian "Kunci untuk server WhatsApp".')));
+  }
+
+  // Kunci untuk server WhatsApp (BOT_API_KEY): dibuat dari sini, tidak perlu membuka .env. Kunci utuh tampil sekali.
+  function botKeySection(s) {
+    const k = s.bot_key || { active: false, source: 'none' };
+    const create = (label) => h('button', { class: 'btn btn--sm', type: 'button', onclick: async () => {
+      if (k.source === 'dashboard' && !(await confirmDialog('Buat kunci baru? Kunci lama langsung tidak berlaku, jadi server WhatsApp harus diisi kunci yang baru.', { confirmText: 'Ya, buat baru' }))) return;
+      run(() => api('/api/sv/integration/bot-key', { method: 'POST' }), { ok: 'Kunci baru dibuat. Salin sekarang.' });
+    } }, label);
+    const parts = [];
+    if (s.new_bot_key) {
+      const val = h('input', { class: 'input', type: 'text', readonly: true, value: s.new_bot_key, 'aria-label': 'Kunci baru', onfocus: (e) => e.target.select() });
+      parts.push(h('div', { class: 'intg-newkey' },
+        h('p', null, h('b', null, 'Salin kunci ini sekarang.'), ' Setelah panel ini ditutup, kunci utuh tidak bisa dilihat lagi. Tempel di WhatsApp: Pengaturan, bagian Acesio.'),
+        h('div', { class: 'copyrow' }, val, h('button', { class: 'btn btn--sm', type: 'button', onclick: async () => {
+          try { await navigator.clipboard.writeText(s.new_bot_key); toast('Kunci disalin'); } catch { val.select(); toast('Tekan Ctrl+C untuk menyalin', 'err'); }
+        } }, 'Salin'))));
+    }
+    const status = k.source === 'dashboard' ? `Aktif (${k.hint}), dibuat ${ago(k.created_at)}.`
+      : k.source === 'env' ? 'Aktif lewat berkas .env server. Buat kunci di sini agar tidak perlu membuka .env lagi.'
+        : 'Belum ada kunci. Buat satu supaya WhatsApp bisa mengirim lead dan membaca data customer.';
+    parts.push(h('p', { class: 'hint' }, status));
+    parts.push(h('div', { class: 'intg-actions' },
+      create(k.source === 'dashboard' ? 'Buat kunci baru' : 'Buat kunci'),
+      k.source === 'dashboard' ? h('button', { class: 'btn btn--sm btn--danger', type: 'button', onclick: async () => {
+        if (!(await confirmDialog('Cabut kunci? Server WhatsApp tidak bisa lagi mengirim lead atau membaca data Acesio sampai kunci baru dibuat.', { confirmText: 'Ya, cabut', danger: true }))) return;
+        run(() => api('/api/sv/integration/bot-key/revoke', { method: 'POST' }), { ok: 'Kunci dicabut' });
+      } }, 'Cabut') : null));
+    return h('section', { class: 'intg-activity', 'aria-label': 'Kunci untuk server WhatsApp' },
+      h('b', null, 'Kunci untuk server WhatsApp'), ...parts);
   }
 
   // Ringkasan 3 langkah sekali lihat; langkah aktif = yang pertama belum selesai.
@@ -266,7 +296,8 @@ export function openIntegrationDrawer(onState) {
         step({ n: 1, title: 'Sambungkan ke WhatsApp', done: x, children: x ? connectedView(s) : connectForm() }),
         step({ n: 2, title: 'Pilih yang dikirim', done: false, locked: !x, children: x ? chooseView(s) : [h('p', { class: 'hint' }, 'Muncul setelah tersambung.')] }),
         step({ n: 3, title: 'Nyalakan', done: s.enabled, locked: !x, children: x ? switchOnView(s) : [h('p', { class: 'hint' }, 'Muncul setelah tersambung.')] })),
-      ...(x ? [activity(s)] : []));
+      ...(x ? [activity(s)] : []),
+      botKeySection(s));
   }
 
   body.append(h('p', { class: 'muted' }, 'Memuat…'));

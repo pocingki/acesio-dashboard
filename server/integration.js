@@ -425,6 +425,36 @@ export function retryFailed() {
   return Number(r.changes);
 }
 
+// ---------------------------------------------------------------- kunci untuk server WhatsApp (BOT_API_KEY)
+// Dibuat dan dicabut dari dashboard, jadi tidak perlu membuka .env. Yang disimpan hanya hash SHA-256 dan
+// 8 huruf pertama sebagai petunjuk; kunci utuh tampil SEKALI saat dibuat. BOT_API_KEY di .env tetap jadi cadangan.
+const BOT_KEY_ROWS = ['bot_key_hash', 'bot_key_hint', 'bot_key_at'];
+const botRow = (k) => db.prepare('SELECT value FROM integration_settings WHERE key = ?').get(k)?.value || '';
+
+/** Hash (hex SHA-256) kunci dari dashboard, atau '' bila belum dibuat. */
+export const botKeyHash = () => botRow('bot_key_hash');
+
+export function createBotKey() {
+  const key = 'acb_' + crypto.randomBytes(24).toString('base64url');
+  write({
+    bot_key_hash: crypto.createHash('sha256').update(key).digest('hex'),
+    bot_key_hint: key.slice(0, 8),
+    bot_key_at: new Date().toISOString(),
+  });
+  return key;
+}
+
+export function revokeBotKey() {
+  const del = db.prepare('DELETE FROM integration_settings WHERE key = ?');
+  tx(() => { for (const k of BOT_KEY_ROWS) del.run(k); });
+}
+
+export function botKeyInfo() {
+  if (botKeyHash()) return { active: true, source: 'dashboard', hint: botRow('bot_key_hint') + '••••••••', created_at: botRow('bot_key_at') };
+  if (process.env.BOT_API_KEY) return { active: true, source: 'env', hint: '', created_at: '' };
+  return { active: false, source: 'none', hint: '', created_at: '' };
+}
+
 // ---------------------------------------------------------------- tampilan untuk dashboard
 
 const hintOf = (key) => {
@@ -461,7 +491,8 @@ export function state() {
     tested_at: S.tested_at, last_error: S.last_error,
     send_visit: S.send_visit === '1', send_thanks: S.send_thanks === '1', thanks_text: S.thanks_text,
     stats, recent,
-    // Arah sebaliknya (WhatsApp membaca data customer Acesio) memakai BOT_API_KEY di .env.
-    amnan_can_read: !!process.env.BOT_API_KEY,
+    // Arah sebaliknya (WhatsApp membaca data customer Acesio) memakai kunci yang dibuat di dashboard (atau BOT_API_KEY di .env).
+    amnan_can_read: botKeyInfo().active,
+    bot_key: botKeyInfo(),
   };
 }
