@@ -2,10 +2,28 @@
 // Customer baru dibuat saat staf menerima, atau dihubungkan ke customer yang nomornya sudah ada.
 import { db, tx } from './db.js';
 import { HttpError, normalizePhone, cleanName } from './util.js';
-import { cleanCustomer, insertCustomer, findByRm, nextRmNo } from './customers.js';
+import { cleanCustomer, insertCustomer, findByRm, nextRmNo, parseGender, parseBirthDate } from './customers.js';
 
 const nowIso = () => new Date().toISOString();
 const clip = (v, max) => String(v ?? '').trim().slice(0, max);
+
+
+// Data rinci dari formulir WhatsApp. Nilai yang tidak valid dibuang satu per satu (tidak menggagalkan terima).
+const FORM_TEXT = { occupation: 100, domicile: 150, month: 40 };
+function formExtras(rawJson) {
+  let d = {};
+  try { d = JSON.parse(rawJson || '{}') || {}; } catch { d = {}; }
+  const out = {};
+  const g = parseGender(d.gender);
+  if (g) out.gender = g;
+  const b = parseBirthDate(d.birth_date);
+  if (b) out.birth_date = b;
+  for (const [k, max] of Object.entries(FORM_TEXT)) {
+    const v = clip(d[k], max);
+    if (v) out[k] = v;
+  }
+  return out;
+}
 
 export function receiveIncoming(body) {
   const name = cleanName(body?.name);
@@ -63,6 +81,12 @@ export function acceptIncoming(id, user, rawRm = '') {
         customerId = found.id;
         rm = found.rm_no || '';
         linked = true;
+        // Customer lama: hanya kolom yang masih kosong yang diisi; data yang sudah ada tidak ditimpa.
+        const have = db.prepare('SELECT gender, birth_date, occupation, domicile, month FROM customers WHERE id = ?').get(found.id) || {};
+        const extra = formExtras(row.raw_data);
+        for (const [k, v] of Object.entries(extra)) {
+          if (!String(have[k] ?? '').trim()) db.prepare(`UPDATE customers SET ${k} = ? WHERE id = ?`).run(v, found.id);
+        }
       }
     }
     if (!customerId) {
@@ -72,6 +96,7 @@ export function acceptIncoming(id, user, rawRm = '') {
         name: row.name,
         phone: row.phone,
         reference: row.platform || 'WhatsApp',
+        ...formExtras(row.raw_data),
       });
       if (warnings.length) throw new HttpError(400, warnings[0]);
       if (findByRm(value.rm_no)) throw new HttpError(409, 'No RM sudah terdaftar');

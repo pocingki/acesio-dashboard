@@ -138,6 +138,24 @@ add('GET', '/api/bot/customers', 'bot', bot(({ query }) => {
   return { customers: rows.map(botCustomer) };
 }));
 
+// Formulir data customer untuk bot WhatsApp. Hanya kolom yang boleh ditanyakan ke customer:
+// No RM dan SOAP tidak pernah ada di sini. Kolom "Bulan" diisi otomatis oleh bot, "Referensi" dari jawaban chat.
+const FORM_FIELDS = [
+  { id: 'name', label: 'Nama' },
+  { id: 'gender', label: 'Jenis kelamin' },
+  { id: 'birth_date', label: 'Tanggal lahir' },
+  { id: 'occupation', label: 'Pekerjaan' },
+  { id: 'domicile', label: 'Domisili' },
+];
+add('GET', '/api/bot/customer-form', 'bot', bot(({ query }) => {
+  const phone = normalizePhone(query.phone);
+  if (!phone) throw new HttpError(400, 'Isi ?phone=... (nomor WhatsApp customer)');
+  const c = db.prepare('SELECT id, name, gender, birth_date, occupation, domicile, reference, month FROM customers WHERE phone = ? ORDER BY id LIMIT 1').get(phone);
+  const values = c ? { name: c.name || '', gender: c.gender || '', birth_date: c.birth_date || '', occupation: c.occupation || '', domicile: c.domicile || '', reference: c.reference || '', month: c.month || '' } : {};
+  const missing = FORM_FIELDS.filter((f) => !c || !String(values[f.id] ?? '').trim()).map((f) => f.id);
+  return { fields: FORM_FIELDS, exists: !!c, customer_id: c ? c.id : null, values, missing };
+}));
+
 add('GET', '/api/bot/customers/:id/history', 'bot', bot(({ params }) => {
   const c = db.prepare('SELECT id, rm_no, name, phone FROM customers WHERE id = ?').get(Number(params.id));
   if (!c) throw new HttpError(404, 'Customer tidak ditemukan');
