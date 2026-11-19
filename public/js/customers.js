@@ -1,6 +1,6 @@
 import { api, downloadFile } from './api.js';
 import {
-  h, icon, toast, fmtDate, fmtPhone, fmtNum, fmtBirth, GENDER_LABEL, openModal, emptyState, field, debounce,
+  h, icon, toast, fmtDate, fmtPhone, fmtNum, fmtBirth, GENDER_LABEL, openModal, emptyState, field, debounce, confirmDialog,
 } from './ui.js';
 
 const HEADERS = ['No', 'No RM', 'Reimburse', 'Nama', 'Jenis Kelamin', 'Tgl Lahir', 'No WA', 'Pekerjaan', 'Domisili', 'Bulan', 'Referensi', 'SOAP', 'Catatan'];
@@ -80,6 +80,56 @@ export function rangeLabel({ offset, shown, total, noun }) {
 }
 
 // ======================= MENU CUSTOMER =======================
+
+// ---------- pengajuan masuk dari WhatsApp ----------
+export function leadSummary(n) {
+  return n ? `${fmtNum(n)} pengajuan menunggu keputusan` : 'Tidak ada pengajuan baru';
+}
+export function acceptMessage(r) {
+  return r.linked
+    ? `Nomor ini sudah terdaftar. Dihubungkan ke customer ${r.rm_no || 'yang ada'}.`
+    : `Customer baru dibuat dengan No RM ${r.rm_no}.`;
+}
+
+function leadsPanel(onAccepted) {
+  const list = h('div', { class: 'leads__list' });
+  const head = h('b', null, 'Pengajuan dari WhatsApp');
+  const sub = h('small', { class: 'muted', role: 'status' }, 'Memuat…');
+  const box = h('section', { class: 'leads', id: 'leads-box', hidden: true, 'aria-label': 'Pengajuan dari WhatsApp' },
+    h('div', { class: 'leads__head' }, head, sub), list);
+
+  async function act(lead, kind) {
+    if (kind === 'reject' && !(await confirmDialog(`Tolak pengajuan ${lead.name}? Customer tidak akan dibuat.`, { confirmText: 'Ya, tolak', danger: true }))) return;
+    try {
+      const r = await api(`/api/staff/incoming-leads/${lead.id}/${kind}`, { method: 'POST', body: {} });
+      toast(kind === 'accept' ? acceptMessage(r) : 'Pengajuan ditolak');
+      await load();
+      if (kind === 'accept') onAccepted();
+    } catch (e) {
+      toast(e.message, 'err');
+      load();
+    }
+  }
+
+  async function load() {
+    try {
+      const { leads } = await api('/api/staff/incoming-leads');
+      box.hidden = leads.length === 0;
+      sub.textContent = leadSummary(leads.length);
+      list.replaceChildren(...leads.map((l) => h('div', { class: 'leads__row' },
+        h('div', { class: 'leads__who' },
+          h('b', null, l.name),
+          h('small', { class: 'muted' }, [l.phone ? fmtPhone(l.phone) : 'Tanpa nomor', l.platform, fmtDate(l.created_at)].filter(Boolean).join(' · ')),
+          l.note ? h('small', null, l.note) : null),
+        h('div', { class: 'leads__act' },
+          h('button', { class: 'btn btn--primary btn--sm', type: 'button', onclick: (ev) => { ev.currentTarget.disabled = true; act(l, 'accept'); } }, 'Terima'),
+          h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => act(l, 'reject') }, 'Tolak')))));
+    } catch { box.hidden = true; }
+  }
+  load();
+  return box;
+}
+
 export function customersView(main, user, ctx = NO_CTX) {
   const gate = createGate(ctx);
   const q = h('input', { class: 'input', type: 'search', id: 'c-q', placeholder: 'Cari No RM, nama, domisili, pekerjaan, referensi, SOAP, atau catatan' });
@@ -162,6 +212,7 @@ export function customersView(main, user, ctx = NO_CTX) {
           h('div', { class: 'toolbar' },
             downloadButton('CSV', () => exportTarget('csv')),
             downloadButton('Excel', () => exportTarget('xlsx')))))),
+    leadsPanel(() => { page = 1; load(); }),
     h('div', { class: 'toolbar mb' }, h('div', { class: 'field toolbar__grow' }, h('label', { for: 'c-q' }, 'Cari'), q)),
     box, pager);
   load();

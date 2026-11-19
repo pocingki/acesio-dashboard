@@ -683,3 +683,12 @@ td small { display: block; color: var(--muted); }
 .intg-newkey .copyrow .input { flex: 1; min-width: 0; font-family: ui-monospace, monospace; }
 .intg-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 section.intg-activity { margin-top: 12px; }
+
+/* Pengajuan masuk dari WhatsApp (halaman Riwayat customer) */
+.leads { border: 1px solid var(--line, #e5e7eb); border-radius: 12px; padding: 12px 14px; margin: 0 0 16px; background: var(--surface, #fff); }
+.leads[hidden] { display: none; }
+.leads__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 8px; }
+.leads__list { display: grid; gap: 8px; }
+.leads__row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 8px 0; border-top: 1px solid var(--line, #e5e7eb); }
+.leads__who { display: grid; gap: 2px; min-width: 0; }
+.leads__act { display: flex; gap: 8px; }
