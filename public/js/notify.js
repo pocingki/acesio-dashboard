@@ -15,6 +15,7 @@ const TYPES = {
   tugas_disetujui: { title: 'Pekerjaan disetujui, isi SOAP', tone: 'selesai' },
   tugas_dibatalkan: { title: 'Tugas dibatalkan', tone: 'batal' },
   perlu_approve: { title: 'Perlu approve terapis', tone: 'menunggu' },
+  pengajuan_baru: { title: 'Pengajuan baru dari WhatsApp', tone: 'menunggu' },
 };
 
 // Judul tipe, isi, dan nada warna untuk satu notifikasi. Tipe tak dikenal memakai judul dari server.
@@ -229,7 +230,7 @@ export function notificationBell({ goTo, pollMs = POLL_MS } = {}) {
       setUnread(unread - 1);
       markRead({ ids: [n.id] }).catch(() => { /* polling berikutnya meluruskan jumlahnya */ });
     }
-    if (typeof goTo === 'function') goTo('schedule', n.day ? { day: n.day } : {});
+    if (typeof goTo === 'function') goTo(n.type === 'pengajuan_baru' ? 'customers' : 'schedule', n.day ? { day: n.day } : {});
   }
 
   async function onMarkAll() {

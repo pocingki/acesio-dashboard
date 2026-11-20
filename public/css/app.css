@@ -692,3 +692,26 @@ section.intg-activity { margin-top: 12px; }
 .leads__row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 8px 0; border-top: 1px solid var(--line, #e5e7eb); }
 .leads__who { display: grid; gap: 2px; min-width: 0; }
 .leads__act { display: flex; gap: 8px; }
+
+/* Kalender bulan penuh (tab Jadwal) */
+.cal { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 12px; margin: 0 0 16px; }
+.cal__head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.cal__title { flex: 1; text-align: center; font-size: 20px; }
+.cal__nav { font-size: 22px; line-height: 1; width: 40px; height: 40px; color: var(--blue-800); }
+.cal__week, .cal__grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.cal__week span { text-align: center; font-size: 12px; font-weight: 600; color: var(--muted); padding: 4px 0; }
+.cal__day { position: relative; display: grid; align-content: start; justify-items: center; gap: 2px; min-height: 56px; padding: 6px 2px; border: 1px solid var(--line); border-radius: 10px; background: #fff; cursor: pointer; }
+.cal__day:hover { background: var(--blue-50); }
+.cal__day--out { color: var(--muted); background: #fafbfe; opacity: .65; }
+.cal__day--past .cal__num { color: var(--muted); }
+.cal__day--today { border-color: var(--blue-600); box-shadow: inset 0 0 0 1px var(--blue-600); }
+.cal__day--sel { background: var(--blue-100); border-color: var(--blue-600); }
+.cal__num { font-weight: 600; font-size: 14px; }
+.cal__count { font-size: 12px; font-weight: 700; color: var(--blue-800); background: var(--blue-100); border-radius: 999px; padding: 0 7px; }
+.cal__dots { display: flex; gap: 3px; }
+.cal__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--blue-600); }
+.cal__dot--berjalan { background: #d98a00; }
+.cal__dot--selesai { background: var(--ok); }
+.cal__dot--batal { background: #9aa3bd; }
+.cal__bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 14px; }
+@media (max-width: 520px) { .cal { padding: 8px; } .cal__day { min-height: 48px; } .cal__count { font-size: 11px; padding: 0 5px; } }

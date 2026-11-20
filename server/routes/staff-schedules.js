@@ -1,6 +1,7 @@
 import { HttpError } from '../util.js';
 import { clientIp } from '../auth.js';
 import { add } from './index.js';
+import { calendarMonth } from '../booking.js';
 import { parseId, readPeriod, cleanQ } from './history.js';
 import {
   SCHEDULE_STATUSES, listSchedules, listWorkers, getSchedule, createSchedule, updateSchedule, cancelSchedule, approveSchedule,
@@ -36,6 +37,9 @@ add('GET', '/api/staff/schedules', 'staff', ({ query }) => {
 });
 
 // Didaftarkan sebelum jalur :id; namanya sengaja berbeda supaya tidak bentrok dengan /api/staff/schedules/:id.
+// Jumlah jadwal per hari untuk kalender bulan (?month=YYYY-MM).
+add('GET', '/api/staff/schedule-calendar', 'staff', ({ query }) => calendarMonth(query.month));
+
 add('GET', '/api/staff/schedule-workers', 'staff', () => ({ workers: listWorkers() }));
 
 add('GET', '/api/staff/schedules/:id', 'staff', ({ params }) => ({ schedule: getSchedule(parseId(params.id, 'ID jadwal')) }));

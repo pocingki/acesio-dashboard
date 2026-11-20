@@ -312,6 +312,11 @@ CREATE TABLE IF NOT EXISTS incoming_leads (
 CREATE INDEX IF NOT EXISTS idx_incoming_leads_status ON incoming_leads(status);
 `);
 
+// Jadwal yang dibuat saat staf menerima pengajuan WhatsApp (ditampilkan ke WA-AMN). Aman diulang.
+if (!db.prepare("SELECT 1 FROM pragma_table_info('incoming_leads') WHERE name = 'schedule_id'").get()) {
+  db.exec('ALTER TABLE incoming_leads ADD COLUMN schedule_id INTEGER');
+}
+
 // Timer layanan dan approve. flow = 1 bila jadwal dimulai dengan alur baru (Mulai -> SOAP -> hitung mundur -> approve);
 // 0 = jadwal lama atau timer dimatikan. due_at = batas waktu hitung mundur (diisi saat SOAP disimpan).
 // approved_at/approved_by = admin/supervisor yang menyatakan pekerjaan terapis selesai (saat itu jadwal Selesai).

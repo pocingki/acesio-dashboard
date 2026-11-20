@@ -32,7 +32,7 @@ before(async () => {
   clockDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acesio-timer-'));
   clockFile = path.join(clockDir, 'now.txt');
   setNow('09:00');
-  srv = await startServer({ env: { NODE_ENV: 'test', APP_FAKE_NOW_FILE: clockFile, SESSION_TIMER: undefined } });
+  srv = await startServer({ env: { NODE_ENV: 'test', APP_FAKE_NOW_FILE: clockFile, SESSION_TIMER: undefined, SLOT_CHECK: 'off' } });
   cookies.sv = (await srv.login()).cookie;
   const mkAcc = async (username, role, name) => {
     const r = await api('sv', 'POST', '/api/sv/accounts', { username, name, password: PASS, role });

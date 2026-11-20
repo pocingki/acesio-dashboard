@@ -5,6 +5,7 @@ import { HttpError } from '../util.js';
 import { clientIp } from '../auth.js';
 import { logAudit } from '../audit.js';
 import * as I from '../integration.js';
+import { bookingConfig, saveBookingConfig } from '../booking.js';
 
 const audit = (req, user, action, detail = {}) => logAudit({
   actor: { id: user.id, name: user.name }, action, targetType: 'integration', targetId: 'amnan', detail, ip: clientIp(req),
@@ -57,3 +58,12 @@ add('POST', '/api/sv/integration/bot-key/revoke', 'sv', ({ req, user }) => {
   audit(req, user, 'integration.bot_key.revoke');
   return I.state();
 });
+
+// Jam layanan untuk slot booking WhatsApp (diatur di dashboard, tanpa menyunting .env).
+add('GET', '/api/sv/booking-hours', 'sv', () => bookingConfig());
+add('PUT', '/api/sv/booking-hours', 'sv', ({ req, user, body }) => {
+  if (!isObj(body)) throw new HttpError(400, 'Data tidak valid');
+  const cfg = saveBookingConfig({ from: body.from, to: body.to, step: body.step });
+  audit(req, user, 'integration.update', { booking_hours: `${cfg.from}-${cfg.to}/${cfg.step}` });
+  return cfg;
+}, { limit: 4 * 1024 });

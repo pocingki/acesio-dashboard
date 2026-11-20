@@ -11,6 +11,7 @@ export const NOTIFICATION_TYPES = Object.freeze({
   tugas_disetujui: 'tugas_disetujui',
   tugas_dibatalkan: 'tugas_dibatalkan',
   perlu_approve: 'perlu_approve',
+  pengajuan_baru: 'pengajuan_baru',
 });
 
 // Judul baku tiap tipe.
@@ -22,6 +23,7 @@ export const NOTIFICATION_TITLES = Object.freeze({
   tugas_disetujui: 'Pekerjaan disetujui, isi SOAP',
   tugas_dibatalkan: 'Tugas dibatalkan',
   perlu_approve: 'Perlu approve terapis',
+  pengajuan_baru: 'Pengajuan baru dari WhatsApp',
 });
 
 // Hanya INSERT. Ikut transaksi yang sedang berjalan dan tidak pernah melempar error ke pemanggil:
@@ -44,6 +46,18 @@ export function createNotification({ userId, type, scheduleId = null, title, bod
 // Bagian baca (Fase 5): daftar, tandai dibaca, hitung belum dibaca, bersih-bersih.
 // Semua hanya menyentuh notifikasi milik user yang diminta.
 // =====================================================================
+// Satu notifikasi ke tiap admin dan supervisor aktif (mis. ada pengajuan baru dari WhatsApp). Tidak pernah melempar.
+export function notifyStaff({ type, title, body = '' }) {
+  try {
+    const staff = db.prepare("SELECT id FROM users WHERE active = 1 AND role IN ('admin', 'supervisor')").all();
+    let made = 0;
+    for (const st of staff) if (createNotification({ userId: st.id, type, title, body })) made += 1;
+    return made;
+  } catch {
+    return 0;
+  }
+}
+
 export const NOTIF_DEFAULT_LIMIT = 30;
 export const NOTIF_MAX_LIMIT = 100;
 export const NOTIF_MAX_IDS = 100;

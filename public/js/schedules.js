@@ -7,6 +7,7 @@ import {
 import {
   createGate, tableWrap, pagerNodes, rangeLabel, NO_CTX,
 } from './customers.js';
+import { monthCalendar, monthOf } from './calendar.js';
 import {
   schedulePill, fmtTimeRange, fmtLongDay, servicesSummary, STAFF_STATUS_FILTER, SOAP_PARTS,
 } from './schedule-ui.js';
@@ -92,6 +93,18 @@ export function scheduleView(main, user, ctx = NO_CTX) {
 
   const checkRange = () => rangeError(from.value, to.value);
 
+  // ---------- kalender bulan (paling atas) ----------
+  const cal = monthCalendar({
+    today,
+    month: monthOf(presetDay),
+    selected: presetDay === from.value && from.value === to.value ? presetDay : '',
+    fmtLong: fmtLongDay,
+    onPick: (day) => { from.value = day; to.value = day; onFilterChange(); },
+    onCreate: (day) => openForm({ schedule: null, workers, ctx, defaultDay: day, onSaved: () => { page = 1; load(); } }),
+  });
+  const syncCal = debounce(() => cal.sync({ selected: from.value && from.value === to.value ? from.value : '', month: from.value ? monthOf(from.value) : '' }), 120);
+  const refreshCal = debounce(() => cal.refresh(), 300);
+
   // ---------- periode cepat ----------
   const quickBtns = QUICK.map(([kind, label]) => h('button', {
     class: 'btn btn--ghost btn--sm btn--toggle', type: 'button', 'aria-pressed': 'false',
@@ -124,6 +137,7 @@ export function scheduleView(main, user, ctx = NO_CTX) {
       const { schedules, total, page: pg, pageSize, pending_approval: pending } = await api(`/api/staff/schedules?${params}`, { signal: req.signal });
       if (!req.ok()) return;
       firstLoad = false;
+      refreshCal();
       pendingNote.textContent = pending ? `${fmtNum(pending)} jadwal menunggu approve` : '';
       pendingNote.hidden = !pending;
       const size = pageSize || 50;
@@ -229,6 +243,7 @@ export function scheduleView(main, user, ctx = NO_CTX) {
     rangeMsg.textContent = msg;
     for (const el of [from, to]) { if (msg) el.setAttribute('aria-invalid', 'true'); else el.removeAttribute('aria-invalid'); }
     syncQuick();
+    syncCal();
     if (msg) return; // jangan memuat rentang terbalik; tampilan lama tetap
     page = 1;
     load();
@@ -253,6 +268,7 @@ export function scheduleView(main, user, ctx = NO_CTX) {
 
   const addBtn = h('button', { class: 'btn btn--primary', type: 'button', onclick: () => openForm({ schedule: null, workers, ctx, onSaved: () => { page = 1; load(); } }) }, icon('plus', 18), 'Tambah jadwal');
   main.append(
+    cal.el,
     h('div', { class: 'page-head' },
       h('div', null, h('h1', null, 'Jadwal'), summary),
       h('div', { class: 'toolbar' }, addBtn)),
@@ -419,7 +435,7 @@ function validateForm(v, { today, original, nowHm }) {
   return null;
 }
 
-function openForm({ schedule, workers, ctx = NO_CTX, onSaved }) {
+function openForm({ schedule, workers, ctx = NO_CTX, onSaved, defaultDay = '' }) {
   const editing = !!schedule;
   const today = todayInTz();
   const flag = (el, on) => { if (on) el.setAttribute('aria-invalid', 'true'); else el.removeAttribute('aria-invalid'); };
@@ -474,7 +490,7 @@ function openForm({ schedule, workers, ctx = NO_CTX, onSaved }) {
   paintCustomer();
 
   // --- tanggal, jam, catatan ---
-  const day = h('input', { class: 'input', id: 'sf-day', type: 'date', min: today, value: editing ? schedule.day : today });
+  const day = h('input', { class: 'input', id: 'sf-day', type: 'date', min: today, value: editing ? schedule.day : (defaultDay >= today ? defaultDay : today) });
   const start = h('input', { class: 'input', id: 'sf-start', type: 'time', value: editing ? schedule.start_time : '' });
   const end = h('input', { class: 'input', id: 'sf-end', type: 'time', value: editing ? schedule.end_time : '' });
   const note = h('textarea', { class: 'input textarea', id: 'sf-note', rows: '3', maxlength: String(NOTE_MAX), placeholder: 'Catatan untuk terapis (opsional)' });

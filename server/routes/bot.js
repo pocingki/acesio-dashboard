@@ -9,6 +9,7 @@ import { requestFingerprint, withIdempotency } from '../idempotency.js';
 import { recordLinkedSchedule } from '../schedules.js';
 import { HttpError, normalizePhone, likePattern } from '../util.js';
 import { receiveIncoming } from '../incoming.js';
+import { slotsFor } from '../booking.js';
 import { botKeyHash } from '../integration.js';
 import { ints } from './helpers.js';
 import { add } from './index.js';
@@ -147,6 +148,29 @@ const FORM_FIELDS = [
   { id: 'occupation', label: 'Pekerjaan' },
   { id: 'domicile', label: 'Domisili' },
 ];
+// Slot jadwal satu hari (untuk AI agent mengatur booking): hanya jumlah petugas kosong, tanpa data customer.
+add('GET', '/api/bot/slots', 'bot', bot(({ query }) => slotsFor(query.date)));
+
+// Status pengajuan WhatsApp berdasarkan wa_lead_id (maks 50, dipisah koma), supaya WA-AMN tahu diterima/ditolak
+// dan jadwal yang terbentuk. Tidak membawa No RM atau catatan medis.
+add('GET', '/api/bot/incoming-leads/status', 'bot', bot(({ query }) => {
+  const ids = [...new Set(String(query.ids ?? '').split(',').map((x) => x.trim()).filter(Boolean))].slice(0, 50);
+  if (!ids.length) throw new HttpError(400, 'Isi ?ids=wa_lead_id1,wa_lead_id2');
+  const q = db.prepare(`SELECT l.wa_lead_id, l.status, l.rejection_reason, l.processed_at, s.day, s.start_time, u.name AS worker
+    FROM incoming_leads l LEFT JOIN schedules s ON s.id = l.schedule_id LEFT JOIN users u ON u.id = s.user_id
+    WHERE l.wa_lead_id = ? ORDER BY l.id DESC LIMIT 1`);
+  return {
+    leads: ids.map((id) => {
+      const r = q.get(id);
+      if (!r) return { wa_lead_id: id, status: 'unknown' };
+      return {
+        wa_lead_id: id, status: r.status, rejection_reason: r.rejection_reason || '', processed_at: r.processed_at || '',
+        schedule: r.day ? { day: r.day, start_time: String(r.start_time).slice(0, 5), worker: r.worker || '' } : null,
+      };
+    }),
+  };
+}));
+
 add('GET', '/api/bot/customer-form', 'bot', bot(({ query }) => {
   const phone = normalizePhone(query.phone);
   if (!phone) throw new HttpError(400, 'Isi ?phone=... (nomor WhatsApp customer)');

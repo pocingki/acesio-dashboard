@@ -1,6 +1,6 @@
 import { api, downloadFile } from './api.js';
 import {
-  h, icon, toast, fmtDate, fmtPhone, fmtNum, fmtBirth, GENDER_LABEL, openModal, emptyState, field, debounce, confirmDialog,
+  h, icon, toast, fmtDate, fmtPhone, fmtNum, fmtBirth, GENDER_LABEL, openModal, emptyState, field, debounce, confirmDialog, todayInTz,
 } from './ui.js';
 
 const HEADERS = ['No', 'No RM', 'Reimburse', 'Nama', 'Jenis Kelamin', 'Tgl Lahir', 'No WA', 'Pekerjaan', 'Domisili', 'Bulan', 'Referensi', 'SOAP', 'Catatan'];
@@ -86,9 +86,73 @@ export function leadSummary(n) {
   return n ? `${fmtNum(n)} pengajuan menunggu keputusan` : 'Tidak ada pengajuan baru';
 }
 export function acceptMessage(r) {
+  const sch = r.schedule ? ` Jadwal ${r.schedule.day} ${r.schedule.start_time} untuk ${r.schedule.worker}.` : '';
   return r.linked
-    ? `Nomor ini sudah terdaftar. Dihubungkan ke customer ${r.rm_no || 'yang ada'}.`
-    : `Customer baru dibuat dengan No RM ${r.rm_no}.`;
+    ? `Nomor ini sudah terdaftar. Dihubungkan ke customer ${r.rm_no || 'yang ada'}.${sch}`
+    : `Customer baru dibuat dengan No RM ${r.rm_no}.${sch}`;
+}
+
+// Isi permintaan Terima dari isian dialog. Kolom jadwal diisi semua atau tidak sama sekali.
+export function acceptPayload({ user_id, day, start_time, service_ids }, withSchedule) {
+  if (!withSchedule) return { body: {} };
+  if (!user_id) return { error: 'Pilih petugas yang bertugas.' };
+  if (!day) return { error: 'Isi tanggal jadwal.' };
+  if (!/^\d{2}:\d{2}$/.test(String(start_time || ''))) return { error: 'Isi jam mulai.' };
+  if (!service_ids.length) return { error: 'Pilih minimal satu layanan.' };
+  return { body: { user_id: Number(user_id), day, start_time, service_ids } };
+}
+
+export function bookingText(b) {
+  if (!b || (!b.day && !b.time && !(b.service_names || []).length)) return 'Belum ada data booking dari WhatsApp';
+  return ['Booking', b.day ? fmtDate(b.day) : null, b.time || null, (b.service_names || []).join(', ') || null].filter(Boolean).join(' · ');
+}
+
+// Dialog Terima: admin memilih petugas, dan bisa mengoreksi layanan/tanggal/jam sebelum jadwal masuk kalender.
+function acceptDialog(lead, onDone) {
+  const b = lead.booking || {};
+  const selected = new Set(b.service_ids || []);
+  const worker = h('select', { class: 'input select', id: 'ac-worker' }, h('option', { value: '' }, 'Memuat petugas…'));
+  const day = h('input', { class: 'input', id: 'ac-day', type: 'date', min: todayInTz(), value: b.day || todayInTz() });
+  const start = h('input', { class: 'input', id: 'ac-start', type: 'time', value: b.time || '' });
+  const grid = h('div', { class: 'sch-svc-grid', role: 'group', 'aria-label': 'Pilih layanan' }, h('p', { class: 'muted' }, 'Memuat layanan…'));
+  const msg = h('p', { class: 'hint', role: 'alert' });
+  api('/api/staff/schedule-workers').then(({ workers }) => {
+    worker.replaceChildren(h('option', { value: '' }, 'Pilih petugas…'), ...workers.map((w) => h('option', { value: w.id }, w.name)));
+  }).catch(() => { worker.replaceChildren(h('option', { value: '' }, 'Petugas belum bisa dimuat')); });
+  api('/api/services').then(({ services }) => {
+    grid.replaceChildren(...services.map((sv) => {
+      const input = h('input', { type: 'checkbox', checked: selected.has(sv.id) ? true : null });
+      input.addEventListener('change', () => { if (input.checked) selected.add(sv.id); else selected.delete(sv.id); });
+      return h('label', { class: 'sch-svc' }, input, h('span', { class: 'sch-svc__num' }, String(sv.position)), h('span', { class: 'sch-svc__name' }, sv.name));
+    }));
+  }).catch(() => { grid.replaceChildren(h('p', { class: 'muted' }, 'Layanan belum bisa dimuat')); });
+
+  let busy = false;
+  async function submit(withSchedule) {
+    if (busy) return;
+    const r = acceptPayload({ user_id: worker.value, day: day.value, start_time: start.value, service_ids: [...selected] }, withSchedule);
+    if (r.error) { msg.textContent = r.error; return; }
+    busy = true; msg.textContent = '';
+    try {
+      const res = await api(`/api/staff/incoming-leads/${lead.id}/accept`, { method: 'POST', body: r.body });
+      toast(acceptMessage(res));
+      modal.close();
+      onDone();
+    } catch (e) {
+      msg.textContent = e.message || 'Gagal menerima pengajuan';
+      busy = false;
+    }
+  }
+  const content = h('div', { class: 'stack' },
+    h('p', null, h('b', null, lead.name), h('br'), h('small', { class: 'muted' }, bookingText(b))),
+    field('Petugas', worker), field('Tanggal', day), field('Jam mulai', start),
+    h('div', { class: 'field' }, h('label', null, 'Layanan'), grid),
+    msg,
+    h('div', { class: 'modal__actions' },
+      h('button', { class: 'btn btn--ghost', type: 'button', onclick: () => modal.close() }, 'Batal'),
+      h('button', { class: 'btn', type: 'button', onclick: () => submit(false) }, 'Terima tanpa jadwal'),
+      h('button', { class: 'btn btn--primary', type: 'button', onclick: () => submit(true) }, 'Terima dan buat jadwal')));
+  const modal = openModal({ title: 'Terima pengajuan', content, wide: true });
 }
 
 function leadsPanel(onAccepted) {
@@ -120,9 +184,10 @@ function leadsPanel(onAccepted) {
         h('div', { class: 'leads__who' },
           h('b', null, l.name),
           h('small', { class: 'muted' }, [l.phone ? fmtPhone(l.phone) : 'Tanpa nomor', l.platform, fmtDate(l.created_at)].filter(Boolean).join(' · ')),
+          h('small', null, bookingText(l.booking)),
           l.note ? h('small', null, l.note) : null),
         h('div', { class: 'leads__act' },
-          h('button', { class: 'btn btn--primary btn--sm', type: 'button', onclick: (ev) => { ev.currentTarget.disabled = true; act(l, 'accept'); } }, 'Terima'),
+          h('button', { class: 'btn btn--primary btn--sm', type: 'button', onclick: () => acceptDialog(l, () => { load(); onAccepted(); }) }, 'Terima'),
           h('button', { class: 'btn btn--ghost btn--sm', type: 'button', onclick: () => act(l, 'reject') }, 'Tolak')))));
     } catch { box.hidden = true; }
   }

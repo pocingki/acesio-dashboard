@@ -33,7 +33,7 @@ export function renderStaffApp(root, user, { onLogout }) {
   }
   let shell;
   const bell = notificationBell({
-    goTo: (_tab, params) => shell.select('schedule', { day: params?.day, status: 'menunggu' }),
+    goTo: (tab, params) => (tab === 'customers' ? shell.select('customers') : shell.select('schedule', { day: params?.day, status: 'menunggu' })),
   });
   shell = createShell({
     user, onLogout, tabs, actions: [bell],

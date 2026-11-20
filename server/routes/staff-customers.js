@@ -9,7 +9,7 @@ import { clientIp } from '../auth.js';
 import { resolveReference, platformNames } from '../platforms.js';
 import { add, LIMITS } from './index.js';
 import { parseId, readFormat, cleanQ, phonePatterns } from './history.js';
-import { listPending, acceptIncoming, rejectIncoming } from '../incoming.js';
+import { listPending, acceptIncoming, rejectIncoming, scheduleFromBody } from '../incoming.js';
 
 const CUSTOMER_COLS = 'c.id, c.rm_no, c.reimburse, c.name, c.gender, c.birth_date, c.phone, c.occupation, c.domicile, c.month, c.reference, c.medical_note, c.note, c.origin';
 const SEARCH_COLS = ['c.rm_no', 'c.name', 'c.reimburse', 'c.occupation', 'c.domicile', 'c.month', 'c.reference', 'c.medical_note', 'c.note'];
@@ -117,7 +117,7 @@ add('GET', '/api/staff/incoming-leads', 'staff', () => ({ leads: listPending() }
 
 add('POST', '/api/staff/incoming-leads/:id/accept', 'staff', ({ req, user, params, body }) => {
   const id = parseId(params.id, 'ID permohonan');
-  const result = orConflict(() => acceptIncoming(id, user, body?.rm_no));
+  const result = orConflict(() => acceptIncoming(id, user, body?.rm_no, scheduleFromBody(body), clientIp(req)));
   logAudit({
     actor: { id: user.id, name: user.name },
     action: 'incoming.accept',

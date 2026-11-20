@@ -275,6 +275,23 @@ export function openIntegrationDrawer(onState) {
       h('b', null, 'Kunci untuk server WhatsApp'), ...parts);
   }
 
+  // Jam layanan untuk slot booking dari WhatsApp. Dimuat terpisah; gagal memuat tidak mengganggu panel lain.
+  function bookingSection() {
+    const box = h('section', { class: 'intg-activity', 'aria-label': 'Jam layanan booking WhatsApp' }, h('b', null, 'Jam layanan untuk booking WhatsApp'), h('p', { class: 'hint' }, 'Memuat…'));
+    api('/api/sv/booking-hours').then((c) => {
+      const from = h('input', { class: 'input', type: 'time', id: 'bk-from', value: c.from, 'aria-label': 'Jam buka' });
+      const to = h('input', { class: 'input', type: 'time', id: 'bk-to', value: c.to, 'aria-label': 'Jam tutup' });
+      const step = h('input', { class: 'input', type: 'number', id: 'bk-step', min: 15, max: 240, step: 5, value: c.step, 'aria-label': 'Lama tiap sesi (menit)' });
+      const save = h('button', { class: 'btn btn--sm btn--ghost', type: 'button', onclick: async () => {
+        try { await api('/api/sv/booking-hours', { method: 'PUT', body: { from: from.value, to: to.value, step: Number(step.value) } }); toast('Jam layanan disimpan'); } catch (e) { if (!e.aborted) toast(e.message, 'err'); }
+      } }, 'Simpan jam layanan');
+      box.replaceChildren(h('b', null, 'Jam layanan untuk booking WhatsApp'),
+        h('p', { class: 'hint' }, 'Bot WhatsApp hanya menawarkan jam di rentang ini. Sebuah jam dianggap tersedia bila masih ada terapis aktif yang kosong.'),
+        h('div', { class: 'row' }, h('label', { for: 'bk-from' }, 'Buka'), from, h('label', { for: 'bk-to' }, 'Tutup'), to, h('label', { for: 'bk-step' }, 'Menit per sesi'), step), save);
+    }).catch(() => box.replaceChildren(h('b', null, 'Jam layanan untuk booking WhatsApp'), h('p', { class: 'hint' }, 'Tidak dapat dimuat.')));
+    return box;
+  }
+
   // Ringkasan 3 langkah sekali lihat; langkah aktif = yang pertama belum selesai.
   function progress(s) {
     const items = [['Sambungkan', s.connected], ['Pilih yang dikirim', s.connected && s.send_visit && s.enabled], ['Nyalakan', s.enabled]];
@@ -297,7 +314,8 @@ export function openIntegrationDrawer(onState) {
         step({ n: 2, title: 'Pilih yang dikirim', done: false, locked: !x, children: x ? chooseView(s) : [h('p', { class: 'hint' }, 'Muncul setelah tersambung.')] }),
         step({ n: 3, title: 'Nyalakan', done: s.enabled, locked: !x, children: x ? switchOnView(s) : [h('p', { class: 'hint' }, 'Muncul setelah tersambung.')] })),
       ...(x ? [activity(s)] : []),
-      botKeySection(s));
+      botKeySection(s),
+      bookingSection());
   }
 
   body.append(h('p', { class: 'muted' }, 'Memuat…'));
